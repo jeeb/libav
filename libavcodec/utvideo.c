@@ -31,7 +31,6 @@
 #include "bytestream.h"
 #include "get_bits.h"
 #include "dsputil.h"
-#include "thread.h"
 
 enum {
     PRED_NONE = 0,
@@ -365,16 +364,14 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     GetByteContext gb;
 
     if (c->pic.data[0])
-        ff_thread_release_buffer(avctx, &c->pic);
+        avctx->release_buffer(avctx, &c->pic);
 
     c->pic.reference = 1;
     c->pic.buffer_hints = FF_BUFFER_HINTS_VALID;
-    if ((ret = ff_thread_get_buffer(avctx, &c->pic)) < 0) {
+    if ((ret = avctx->get_buffer(avctx, &c->pic)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
     }
-
-    ff_thread_finish_setup(avctx);
 
     /* parse plane structure to retrieve frame flags and validate slice offsets */
     bytestream2_init(&gb, buf, buf_size);
@@ -554,7 +551,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
     UtvideoContext * const c = avctx->priv_data;
 
     if (c->pic.data[0])
-        ff_thread_release_buffer(avctx, &c->pic);
+        avctx->release_buffer(avctx, &c->pic);
 
     av_freep(&c->slice_bits);
 
@@ -569,6 +566,6 @@ AVCodec ff_utvideo_decoder = {
     .init           = decode_init,
     .close          = decode_end,
     .decode         = decode_frame,
-    .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS,
+    .capabilities   = CODEC_CAP_DR1,
     .long_name      = NULL_IF_CONFIG_SMALL("Ut Video"),
 };
