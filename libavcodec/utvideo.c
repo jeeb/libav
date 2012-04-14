@@ -39,6 +39,23 @@ enum {
     PRED_MEDIAN,
 };
 
+typedef struct UtvideoThreadData {
+    const uint8_t *src;
+    uint8_t *dst;
+
+    int width;
+    int height;
+    int stride;
+    int use_pred;
+
+    int slicenr;
+
+    int step;
+
+    int cmask;
+    VLC *vlc;
+} UtvideoThreadData;
+
 typedef struct UtvideoContext {
     AVCodecContext *avctx;
     AVFrame pic;
@@ -108,6 +125,71 @@ static int build_huff(const uint8_t *src, VLC *vlc, int *fsym)
                               syms,  sizeof(*syms),  sizeof(*syms), 0);
 }
 
+static int decode_slice_plane(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
+{
+    UtvideoContext * const c = avctx->priv_data;
+    UtvideoThreadData *td = ((UtvideoThreadData*)tdata) + jobnr;
+    GetBitContext gb;
+
+    int i, j, pix;
+    int sstart = td->slicenr ? (td->height * td->slicenr / c->slices) & td->cmask : 0;
+    int send = (td->height * (td->slicenr + 1) / c->slices) & td->cmask;
+    int prev = 0x80;
+
+    uint8_t *dest;
+    int slice_data_start, slice_data_end, slice_size;
+
+    dest   = td->dst + sstart * td->stride;
+    av_log(avctx, AV_LOG_WARNING, "Utvideo hacking:\n Width: %d, Height: %d, SStart: %d, SEnd: %d\n\n", td->width, td->height, sstart, send);
+
+    // slice offset and size validation was done earlier
+    slice_data_start = td->slicenr ? AV_RL32(td->src + td->slicenr * 4 - 4) : 0;
+    slice_data_end   = AV_RL32(td->src + td->slicenr * 4);
+    slice_size       = slice_data_end - slice_data_start;
+
+    if (!slice_size) {
+        for (j = sstart; j < send; j++) {
+            for (i = 0; i < td->width * td->step; i += td->step)
+                dest[i] = 0x80;
+            dest += td->stride;
+        }
+        return 0;
+    }
+
+    memcpy(c->slice_bits, td->src + slice_data_start + c->slices * 4, slice_size);
+    memset(c->slice_bits + slice_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+    c->dsp.bswap_buf((uint32_t*)c->slice_bits, (uint32_t*)c->slice_bits,
+                     (slice_data_end - slice_data_start + 3) >> 2);
+    init_get_bits(&gb, c->slice_bits, slice_size * 8);
+
+    for (j = sstart; j < send; j++) {
+        for (i = 0; i < td->width * td->step; i += td->step) {
+            if (get_bits_left(&gb) <= 0) {
+                av_log(c->avctx, AV_LOG_ERROR, "Slice decoding ran out of bits\n");
+                goto fail_slice;
+            }
+            pix = get_vlc2(&gb, td->vlc->table, td->vlc->bits, 4);
+            if (pix < 0) {
+                av_log(c->avctx, AV_LOG_ERROR, "Decoding error\n");
+                goto fail_slice;
+            }
+            if (td->use_pred) {
+                prev += pix;
+                pix   = prev;
+            }
+            dest[i] = pix;
+        }
+        dest += td->stride;
+    }
+    if (get_bits_left(&gb) > 32)
+        av_log(c->avctx, AV_LOG_WARNING, "%d bits left after decoding slice\n",
+               get_bits_left(&gb));
+
+    return 0;
+fail_slice:
+    return AVERROR_INVALIDDATA;
+}
+
 static int decode_plane(UtvideoContext *c, int plane_no,
                         uint8_t *dst, int step, int stride,
                         int width, int height,
@@ -116,7 +198,7 @@ static int decode_plane(UtvideoContext *c, int plane_no,
     int i, j, slice, pix;
     int sstart, send;
     VLC vlc;
-    GetBitContext gb;
+    UtvideoThreadData tdata[c->slices];
     int prev, fsym;
     const int cmask = ~(!plane_no && c->avctx->pix_fmt == PIX_FMT_YUV420P);
 
@@ -151,59 +233,26 @@ static int decode_plane(UtvideoContext *c, int plane_no,
 
     src      += 256;
 
-    send = 0;
-    for (slice = 0; slice < c->slices; slice++) {
-        uint8_t *dest;
-        int slice_data_start, slice_data_end, slice_size;
+    for (slice = 0; slice < c->slices; slice++)
+    {
+        tdata[slice].src = src;
+        tdata[slice].dst = dst;
 
-        sstart = send;
-        send   = (height * (slice + 1) / c->slices) & cmask;
-        dest   = dst + sstart * stride;
+        tdata[slice].slicenr = slice;
 
-        // slice offset and size validation was done earlier
-        slice_data_start = slice ? AV_RL32(src + slice * 4 - 4) : 0;
-        slice_data_end   = AV_RL32(src + slice * 4);
-        slice_size       = slice_data_end - slice_data_start;
+        tdata[slice].width = width;
+        tdata[slice].height = height;
+        tdata[slice].stride = stride;
+        tdata[slice].cmask = cmask;
+        tdata[slice].use_pred = use_pred;
 
-        if (!slice_size) {
-            for (j = sstart; j < send; j++) {
-                for (i = 0; i < width * step; i += step)
-                    dest[i] = 0x80;
-                dest += stride;
-            }
-            continue;
-        }
+        tdata[slice].step = step;
 
-        memcpy(c->slice_bits, src + slice_data_start + c->slices * 4, slice_size);
-        memset(c->slice_bits + slice_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-        c->dsp.bswap_buf((uint32_t*)c->slice_bits, (uint32_t*)c->slice_bits,
-                         (slice_data_end - slice_data_start + 3) >> 2);
-        init_get_bits(&gb, c->slice_bits, slice_size * 8);
-
-        prev = 0x80;
-        for (j = sstart; j < send; j++) {
-            for (i = 0; i < width * step; i += step) {
-                if (get_bits_left(&gb) <= 0) {
-                    av_log(c->avctx, AV_LOG_ERROR, "Slice decoding ran out of bits\n");
-                    goto fail;
-                }
-                pix = get_vlc2(&gb, vlc.table, vlc.bits, 4);
-                if (pix < 0) {
-                    av_log(c->avctx, AV_LOG_ERROR, "Decoding error\n");
-                    goto fail;
-                }
-                if (use_pred) {
-                    prev += pix;
-                    pix   = prev;
-                }
-                dest[i] = pix;
-            }
-            dest += stride;
-        }
-        if (get_bits_left(&gb) > 32)
-            av_log(c->avctx, AV_LOG_WARNING, "%d bits left after decoding slice\n",
-                   get_bits_left(&gb));
+        tdata[slice].vlc = &vlc;
     }
+
+    if(c->avctx->execute2(c->avctx, decode_slice_plane, &tdata, NULL, c->slices))
+        goto fail;
 
     ff_free_vlc(&vlc);
 
@@ -567,5 +616,6 @@ AVCodec ff_utvideo_decoder = {
     .close          = decode_end,
     .decode         = decode_frame,
     .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_SLICE_THREADS,
     .long_name      = NULL_IF_CONFIG_SMALL("Ut Video"),
 };
