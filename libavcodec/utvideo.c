@@ -551,8 +551,12 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
         restore_rgb_planes(c->pic.data[0], c->planes, c->pic.linesize[0],
                            avctx->width, avctx->height);
         break;
-    case PIX_FMT_YUV420P:
+    case PIX_FMT_YUV420P:\
+        mtdata.step = 1;
         for (i = 0; i < 3; i++) {
+            mtdata.src = c->pic.data[i];
+            mtdata.stride = c->pic.linesize[i];
+            mtdata.rmode = !i;
             ret = decode_plane(c, i, c->pic.data[i], 1,
                                c->pic.linesize[i], avctx->width >> !!i, avctx->height >> !!i,
                                plane_start[i], c->frame_pred == PRED_LEFT);
@@ -560,9 +564,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
                 return ret;
             if (c->frame_pred == PRED_MEDIAN) {
                 if (!c->interlaced) {
-                    restore_median(c->pic.data[i], 1, c->pic.linesize[i],
-                                   avctx->width >> !!i, avctx->height >> !!i,
-                                   c->slices, !i);
+                    avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
                 } else {
                     restore_median_il(c->pic.data[i], 1, c->pic.linesize[i],
                                       avctx->width  >> !!i,
@@ -573,7 +575,11 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
         }
         break;
     case PIX_FMT_YUV422P:
+        mtdata.step = 1;
+        mtdata.rmode = 0;
         for (i = 0; i < 3; i++) {
+            mtdata.src = c->pic.data[i];
+            mtdata.stride = c->pic.linesize[i];
             ret = decode_plane(c, i, c->pic.data[i], 1,
                                c->pic.linesize[i], avctx->width >> !!i, avctx->height,
                                plane_start[i], c->frame_pred == PRED_LEFT);
@@ -581,9 +587,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
                 return ret;
             if (c->frame_pred == PRED_MEDIAN) {
                 if (!c->interlaced) {
-                    restore_median(c->pic.data[i], 1, c->pic.linesize[i],
-                                   avctx->width >> !!i, avctx->height,
-                                   c->slices, 0);
+                    avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
                 } else {
                     restore_median_il(c->pic.data[i], 1, c->pic.linesize[i],
                                       avctx->width >> !!i, avctx->height,
