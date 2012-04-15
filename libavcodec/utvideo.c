@@ -68,8 +68,8 @@ typedef struct UtvideoContext {
     int interlaced;
     int frame_pred;
 
-    uint8_t *slice_bits;
-    int slice_bits_size;
+    uint8_t **slice_bits;
+    int *slice_bits_size;
 } UtvideoContext;
 
 typedef struct HuffEntry {
@@ -135,6 +135,7 @@ static int decode_slice_plane(AVCodecContext *avctx, void *tdata, int jobnr, int
     int sstart = td->slicenr ? (td->height * td->slicenr / c->slices) & td->cmask : 0;
     int send = (td->height * (td->slicenr + 1) / c->slices) & td->cmask;
     int prev = 0x80;
+    uint8_t *slice_bits = c->slice_bits[jobnr];
 
     uint8_t *dest;
     int slice_data_start, slice_data_end, slice_size;
@@ -156,11 +157,11 @@ static int decode_slice_plane(AVCodecContext *avctx, void *tdata, int jobnr, int
         return 0;
     }
 
-    memcpy(c->slice_bits, td->src + slice_data_start + c->slices * 4, slice_size);
-    memset(c->slice_bits + slice_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-    c->dsp.bswap_buf((uint32_t*)c->slice_bits, (uint32_t*)c->slice_bits,
+    memcpy(slice_bits, td->src + slice_data_start + c->slices * 4, slice_size);
+    memset(slice_bits + slice_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+    c->dsp.bswap_buf((uint32_t*)slice_bits, (uint32_t*)slice_bits,
                      (slice_data_end - slice_data_start + 3) >> 2);
-    init_get_bits(&gb, c->slice_bits, slice_size * 8);
+    init_get_bits(&gb, slice_bits, slice_size * 8);
 
     for (j = sstart; j < send; j++) {
         for (i = 0; i < td->width * td->step; i += td->step) {
@@ -462,13 +463,18 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
         return AVERROR_PATCHWELCOME;
     }
 
-    av_fast_malloc(&c->slice_bits, &c->slice_bits_size,
-                   max_slice_size + FF_INPUT_BUFFER_PADDING_SIZE);
+    for(i = 0; i < c->slices; i++)
+    {
+        av_fast_malloc(&c->slice_bits[i], &c->slice_bits_size[i],
+                       max_slice_size + FF_INPUT_BUFFER_PADDING_SIZE);
 
-    if (!c->slice_bits) {
-        av_log(avctx, AV_LOG_ERROR, "Cannot allocate temporary buffer\n");
-        return AVERROR(ENOMEM);
+        if (!c->slice_bits[i]) {
+            av_log(avctx, AV_LOG_ERROR, "Cannot allocate temporary buffer\n");
+            return AVERROR(ENOMEM);
+        }
     }
+
+
 
     switch (c->avctx->pix_fmt) {
     case PIX_FMT_RGB24:
@@ -542,6 +548,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
 static av_cold int decode_init(AVCodecContext *avctx)
 {
     UtvideoContext * const c = avctx->priv_data;
+    int i;
 
     c->avctx = avctx;
 
@@ -567,7 +574,26 @@ static av_cold int decode_init(AVCodecContext *avctx)
     c->compression = c->flags & 1;
     c->interlaced  = c->flags & 0x800;
 
-    c->slice_bits_size = 0;
+    c->slice_bits_size = (int *)av_malloc(sizeof(int) * c->slices);
+
+    if(!c->slice_bits_size)
+    {
+        av_log(avctx, AV_LOG_ERROR, "Failed to malloc slice_bits_size.\n");
+        return ENOMEM;
+    }
+
+    c->slice_bits = (uint8_t **)av_malloc(sizeof(uint8_t *) * c->slices);
+
+    if(!c->slice_bits)
+    {
+        av_log(avctx, AV_LOG_ERROR, "Failed to malloc slice_bits.\n");
+        return ENOMEM;
+    }
+
+    for(i = 0; i < c->slices; i++)
+    {
+        c->slice_bits_size[i] = 0;
+    }        
 
     switch (avctx->codec_tag) {
     case MKTAG('U', 'L', 'R', 'G'):
@@ -597,12 +623,16 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
 static av_cold int decode_end(AVCodecContext *avctx)
 {
+    int i;
     UtvideoContext * const c = avctx->priv_data;
 
     if (c->pic.data[0])
         avctx->release_buffer(avctx, &c->pic);
 
-    av_freep(&c->slice_bits);
+    for(i = 0; i < c->slices; i++)
+    {
+        av_freep(&c->slice_bits[i]);
+    }
 
     return 0;
 }
