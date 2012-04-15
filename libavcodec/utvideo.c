@@ -39,6 +39,13 @@ enum {
     PRED_MEDIAN,
 };
 
+typedef struct UtvideoRestoreMedianData {
+    uint8_t *src;
+    int stride;
+    int rmode;
+    int step;
+} UtvideoRestoreMedianData;
+
 typedef struct UtvideoThreadData {
     const uint8_t *src;
     uint8_t *dst;
@@ -282,6 +289,54 @@ static void restore_rgb_planes(uint8_t *src, int step, int stride, int width, in
     }
 }
 
+static void restore_median_slice(AVCodecContext *avctx, void *mtdata, int jobnr, int threadnr)
+{
+    UtvideoRestoreMedianData *mtd = (UtvideoRestoreMedianData*)mtdata;
+    UtvideoContext * const c = avctx->priv_data;
+    int i, j;
+    int A, B, C;
+    uint8_t *bsrc;
+    int slice_start, slice_height;
+    const int cmask = ~mtd->rmode;
+
+    slice_start = ((jobnr * avctx->height) / c->slices) & cmask;
+    slice_height = ((((jobnr + 1) * avctx->height) / c->slices) & cmask) - slice_start;
+
+    bsrc = mtd->src + slice_start * mtd->stride;
+
+    // first line - left neighbour prediction
+    bsrc[0] += 0x80;
+    A = bsrc[0];
+    for (i = mtd->step; i < avctx->width * mtd->step; i += mtd->step) {
+        bsrc[i] += A;
+        A = bsrc[i];
+    }
+    bsrc += mtd->stride;
+    if (slice_height == 1)
+        return;
+    // second line - first element has top predition, the rest uses median
+    C = bsrc[-mtd->stride];
+    bsrc[0] += C;
+    A = bsrc[0];
+    for (i = mtd->step; i < avctx->width * mtd->step; i += mtd->step) {
+        B = bsrc[i - mtd->stride];
+        bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
+        C = B;
+        A = bsrc[i];
+    }
+    bsrc += mtd->stride;
+    // the rest of lines use continuous median prediction
+    for (j = 2; j < slice_height; j++) {
+        for (i = 0; i < avctx->width * mtd->step; i += mtd->step) {
+            B = bsrc[i - mtd->stride];
+            bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
+            C = B;
+            A = bsrc[i];
+        }
+        bsrc += mtd->stride;
+    }
+}
+
 static void restore_median(uint8_t *src, int step, int stride,
                            int width, int height, int slices, int rmode)
 {
@@ -407,6 +462,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
     UtvideoContext *c = avctx->priv_data;
+    UtvideoRestoreMedianData mtdata;
     int i, j;
     const uint8_t *plane_start[5];
     int plane_size, max_slice_size = 0, slice_start, slice_end, slice_size;
@@ -479,16 +535,18 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     switch (c->avctx->pix_fmt) {
     case PIX_FMT_RGB24:
     case PIX_FMT_RGBA:
+        mtdata.rmode = 0;
+        mtdata.stride = c->pic.linesize[0];
+        mtdata.step = c->planes;
         for (i = 0; i < c->planes; i++) {
+            mtdata.src = c->pic.data[0] + rgb_order[i];
             ret = decode_plane(c, i, c->pic.data[0] + rgb_order[i], c->planes,
                                c->pic.linesize[0], avctx->width, avctx->height,
                                plane_start[i], c->frame_pred == PRED_LEFT);
             if (ret)
                 return ret;
             if (c->frame_pred == PRED_MEDIAN)
-                restore_median(c->pic.data[0] + rgb_order[i], c->planes,
-                               c->pic.linesize[0], avctx->width, avctx->height,
-                               c->slices, 0);
+                avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
         }
         restore_rgb_planes(c->pic.data[0], c->planes, c->pic.linesize[0],
                            avctx->width, avctx->height);
