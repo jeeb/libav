@@ -41,7 +41,10 @@ enum {
 
 typedef struct UtvideoRestoreMedianData {
     uint8_t *src;
+    int width;
+    int height;
     int stride;
+
     int rmode;
     int step;
 } UtvideoRestoreMedianData;
@@ -340,71 +343,74 @@ static void restore_median_slice(AVCodecContext *avctx, void *mtdata, int jobnr,
 /* UtVideo interlaced mode treats every two lines as a single one,
  * so restoring function should take care of possible padding between
  * two parts of the same "line".
+ *
+ * Unlike its non-interlaced counterpart, this function utilizes mtdata's
+ * height and width parameters, as special cases reside here.
  */
-static void restore_median_il(uint8_t *src, int step, int stride,
-                              int width, int height, int slices, int rmode)
+static void restore_median_slice_il(AVCodecContext *avctx, void *mtdata, int jobnr, int threadnr)
 {
-    int i, j, slice;
+    UtvideoRestoreMedianData *mtd = (UtvideoRestoreMedianData*)mtdata;
+    UtvideoContext * const c = avctx->priv_data;
+
+    int i, j;
     int A, B, C;
     uint8_t *bsrc;
     int slice_start, slice_height;
-    const int cmask = ~(rmode ? 3 : 1);
-    const int stride2 = stride << 1;
+    const int cmask = ~(mtd->rmode ? 3 : 1);
+    const int stride2 = mtd->stride << 1;
 
-    for (slice = 0; slice < slices; slice++) {
-        slice_start    = ((slice * height) / slices) & cmask;
-        slice_height   = ((((slice + 1) * height) / slices) & cmask) - slice_start;
-        slice_height >>= 1;
+    slice_start    = ((jobnr * mtd->height) / c->slices) & cmask;
+    slice_height   = ((((jobnr + 1) * mtd->height) / c->slices) & cmask) - slice_start;
+    slice_height >>= 1;
 
-        bsrc = src + slice_start * stride;
+    bsrc = mtd->src + slice_start * mtd->stride;
 
-        // first line - left neighbour prediction
-        bsrc[0] += 0x80;
-        A = bsrc[0];
-        for (i = step; i < width * step; i += step) {
-            bsrc[i] += A;
-            A = bsrc[i];
-        }
-        for (i = 0; i < width * step; i += step) {
-            bsrc[stride + i] += A;
-            A = bsrc[stride + i];
-        }
-        bsrc += stride2;
-        if (slice_height == 1)
-            continue;
-        // second line - first element has top predition, the rest uses median
-        C = bsrc[-stride2];
-        bsrc[0] += C;
-        A = bsrc[0];
-        for (i = step; i < width * step; i += step) {
+    // first line - left neighbour prediction
+    bsrc[0] += 0x80;
+    A = bsrc[0];
+    for (i = mtd->step; i < mtd->width * mtd->step; i += mtd->step) {
+        bsrc[i] += A;
+        A = bsrc[i];
+    }
+    for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
+        bsrc[mtd->stride + i] += A;
+        A = bsrc[mtd->stride + i];
+    }
+    bsrc += stride2;
+    if (slice_height == 1)
+        return;
+    // second line - first element has top predition, the rest uses median
+    C = bsrc[-stride2];
+    bsrc[0] += C;
+    A = bsrc[0];
+    for (i = mtd->step; i < mtd->width * mtd->step; i += mtd->step) {
+        B = bsrc[i - stride2];
+        bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
+        C = B;
+        A = bsrc[i];
+    }
+    for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
+        B = bsrc[i - mtd->stride];
+        bsrc[mtd->stride + i] += mid_pred(A, B, (uint8_t)(A + B - C));
+        C = B;
+        A = bsrc[mtd->stride + i];
+    }
+    bsrc += stride2;
+    // the rest of lines use continuous median prediction
+    for (j = 2; j < slice_height; j++) {
+        for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
             B = bsrc[i - stride2];
             bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
             C = B;
             A = bsrc[i];
         }
-        for (i = 0; i < width * step; i += step) {
-            B = bsrc[i - stride];
-            bsrc[stride + i] += mid_pred(A, B, (uint8_t)(A + B - C));
+        for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
+            B = bsrc[i - mtd->stride];
+            bsrc[i + mtd->stride] += mid_pred(A, B, (uint8_t)(A + B - C));
             C = B;
-            A = bsrc[stride + i];
+            A = bsrc[i + mtd->stride];
         }
         bsrc += stride2;
-        // the rest of lines use continuous median prediction
-        for (j = 2; j < slice_height; j++) {
-            for (i = 0; i < width * step; i += step) {
-                B = bsrc[i - stride2];
-                bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-                C = B;
-                A = bsrc[i];
-            }
-            for (i = 0; i < width * step; i += step) {
-                B = bsrc[i - stride];
-                bsrc[i + stride] += mid_pred(A, B, (uint8_t)(A + B - C));
-                C = B;
-                A = bsrc[i + stride];
-            }
-            bsrc += stride2;
-        }
     }
 }
 
@@ -505,22 +511,21 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     case PIX_FMT_YUV420P:\
         mtdata.step = 1;
         for (i = 0; i < 3; i++) {
-            mtdata.src = c->pic.data[i];
-            mtdata.stride = c->pic.linesize[i];
-            mtdata.rmode = !i;
             ret = decode_plane(c, i, c->pic.data[i], 1,
                                c->pic.linesize[i], avctx->width >> !!i, avctx->height >> !!i,
                                plane_start[i], c->frame_pred == PRED_LEFT);
             if (ret)
                 return ret;
             if (c->frame_pred == PRED_MEDIAN) {
+                mtdata.src = c->pic.data[i];
+                mtdata.stride = c->pic.linesize[i];
+                mtdata.rmode = !i;
                 if (!c->interlaced) {
                     avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
                 } else {
-                    restore_median_il(c->pic.data[i], 1, c->pic.linesize[i],
-                                      avctx->width  >> !!i,
-                                      avctx->height >> !!i,
-                                      c->slices, !i);
+                    mtdata.width = avctx->width  >> !!i;
+                    mtdata.height = avctx->height >> !!i;
+                    avctx->execute2(avctx, restore_median_slice_il, &mtdata, NULL, c->slices);
                 }
             }
         }
@@ -528,21 +533,21 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     case PIX_FMT_YUV422P:
         mtdata.step = 1;
         mtdata.rmode = 0;
+        mtdata.height = avctx->height;
         for (i = 0; i < 3; i++) {
-            mtdata.src = c->pic.data[i];
-            mtdata.stride = c->pic.linesize[i];
             ret = decode_plane(c, i, c->pic.data[i], 1,
                                c->pic.linesize[i], avctx->width >> !!i, avctx->height,
                                plane_start[i], c->frame_pred == PRED_LEFT);
             if (ret)
                 return ret;
             if (c->frame_pred == PRED_MEDIAN) {
+                mtdata.src = c->pic.data[i];
+                mtdata.stride = c->pic.linesize[i];
                 if (!c->interlaced) {
                     avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
                 } else {
-                    restore_median_il(c->pic.data[i], 1, c->pic.linesize[i],
-                                      avctx->width >> !!i, avctx->height,
-                                      c->slices, 0);
+                    mtdata.width = avctx->width  >> !!i;
+                    avctx->execute2(avctx, restore_median_slice_il, &mtdata, NULL, c->slices);
                 }
             }
         }
