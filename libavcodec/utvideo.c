@@ -574,7 +574,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
     c->compression = c->flags & 1;
     c->interlaced  = c->flags & 0x800;
 
-    c->slice_bits_size = (int *)av_malloc(sizeof(int) * c->slices);
+    c->slice_bits_size = av_mallocz(sizeof(*c->slice_bits_size) * c->slices);
 
     if(!c->slice_bits_size)
     {
@@ -582,7 +582,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
         return ENOMEM;
     }
 
-    c->slice_bits = (uint8_t **)av_malloc(sizeof(uint8_t *) * c->slices);
+    c->slice_bits = av_mallocz(sizeof(*c->slice_bits) * c->slices);
 
     if(!c->slice_bits)
     {
