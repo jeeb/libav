@@ -335,9 +335,9 @@ static int restore_median_slice_il(AVCodecContext *avctx, void *tdata, int jobnr
         }
         for (i = 0; i < td->width * td->step; i += td->step) {
             B = bsrc[i - td->stride];
-            bsrc[i + td->stride] += mid_pred(A, B, (uint8_t)(A + B - C));
+            bsrc[td->stride + i] += mid_pred(A, B, (uint8_t)(A + B - C));
             C = B;
-            A = bsrc[i + td->stride];
+            A = bsrc[td->stride + i];
         }
         bsrc += stride2;
     }
