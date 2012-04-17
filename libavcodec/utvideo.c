@@ -224,7 +224,7 @@ static void restore_rgb_planes(uint8_t *src, int step, int stride, int width, in
     }
 }
 
-static void restore_median_slice(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
+static int restore_median_slice(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
 {
     UtvideoThreadData *td = tdata;
     UtvideoContext * const c = avctx->priv_data;
@@ -248,7 +248,7 @@ static void restore_median_slice(AVCodecContext *avctx, void *tdata, int jobnr, 
     }
     bsrc += td->stride;
     if (slice_height == 1)
-        return;
+        return 0;
     // second line - first element has top predition, the rest uses median
     C = bsrc[-td->stride];
     bsrc[0] += C;
@@ -270,13 +270,14 @@ static void restore_median_slice(AVCodecContext *avctx, void *tdata, int jobnr, 
         }
         bsrc += td->stride;
     }
+    return 0;
 }
 
 /* UtVideo interlaced mode treats every two lines as a single one,
  * so restoring function should take care of possible padding between
  * two parts of the same "line".
  */
-static void restore_median_slice_il(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
+static int restore_median_slice_il(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
 {
     UtvideoThreadData *td = tdata;
     UtvideoContext * const c = avctx->priv_data;
@@ -307,7 +308,7 @@ static void restore_median_slice_il(AVCodecContext *avctx, void *tdata, int jobn
     }
     bsrc += stride2;
     if (slice_height == 1)
-        return;
+        return 0;
     // second line - first element has top predition, the rest uses median
     C = bsrc[-stride2];
     bsrc[0] += C;
@@ -341,6 +342,7 @@ static void restore_median_slice_il(AVCodecContext *avctx, void *tdata, int jobn
         }
         bsrc += stride2;
     }
+    return 0;
 }
 
 static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPacket *avpkt)
