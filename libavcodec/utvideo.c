@@ -407,8 +407,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
         return AVERROR_PATCHWELCOME;
     }
 
-    for(i = 0; i < c->slices; i++)
-    {
+    for(i = 0; i < c->slices; i++) {
         av_fast_malloc(&c->slice_bits[i], &c->slice_bits_size[i],
                        max_slice_size + FF_INPUT_BUFFER_PADDING_SIZE);
 
