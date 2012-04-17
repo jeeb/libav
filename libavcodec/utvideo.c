@@ -39,16 +39,6 @@ enum {
     PRED_MEDIAN,
 };
 
-typedef struct UtvideoRestoreMedianData {
-    uint8_t *src;
-    int width;
-    int height;
-    int stride;
-
-    int rmode;
-    int step;
-} UtvideoRestoreMedianData;
-
 typedef struct UtvideoThreadData {
     const uint8_t *src;
     uint8_t *dst;
@@ -56,14 +46,14 @@ typedef struct UtvideoThreadData {
     int width;
     int height;
     int stride;
-    int use_pred;
+    int plane_no;
 
-    int slicenr;
-
-    int step;
-
+    int rmode;
+    int fsym;
     int cmask;
+    int step;
     VLC *vlc;
+    int use_pred;
 } UtvideoThreadData;
 
 typedef struct UtvideoContext {
@@ -135,15 +125,15 @@ static int build_huff(const uint8_t *src, VLC *vlc, int *fsym)
                               syms,  sizeof(*syms),  sizeof(*syms), 0);
 }
 
-static int decode_slice_plane(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
+static int decode_slice(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
 {
     UtvideoContext * const c = avctx->priv_data;
-    UtvideoThreadData *td = ((UtvideoThreadData*)tdata) + jobnr;
+    UtvideoThreadData *td = tdata;
     GetBitContext gb;
 
     int i, j, pix;
-    int sstart = td->slicenr ? (td->height * td->slicenr / c->slices) & td->cmask : 0;
-    int send = (td->height * (td->slicenr + 1) / c->slices) & td->cmask;
+    int sstart = jobnr ? (td->height * jobnr / c->slices) & td->cmask : 0;
+    int send = (td->height * (jobnr + 1) / c->slices) & td->cmask;
     int prev = 0x80;
     uint8_t *slice_bits = c->slice_bits[jobnr];
 
@@ -152,9 +142,24 @@ static int decode_slice_plane(AVCodecContext *avctx, void *tdata, int jobnr, int
 
     dest   = td->dst + sstart * td->stride;
 
+    if (td->fsym >= 0) { // build_huff reported a symbol to fill slices with
+        for (j = sstart; j < send; j++) {
+            for (i = 0; i < td->width * td->step; i += td->step) {
+                pix = td->fsym;
+                if (td->use_pred) {
+                    prev += pix;
+                    pix   = prev;
+                }
+                dest[i] = pix;
+            }
+            dest += td->stride;
+        }
+        return 0;
+    }
+
     // slice offset and size validation was done earlier
-    slice_data_start = td->slicenr ? AV_RL32(td->src + td->slicenr * 4 - 4) : 0;
-    slice_data_end   = AV_RL32(td->src + td->slicenr * 4);
+    slice_data_start = jobnr ? AV_RL32(td->src + jobnr * 4 - 4) : 0;
+    slice_data_end   = AV_RL32(td->src + jobnr * 4);
     slice_size       = slice_data_end - slice_data_start;
 
     if (!slice_size) {
@@ -200,78 +205,6 @@ fail_slice:
     return AVERROR_INVALIDDATA;
 }
 
-static int decode_plane(UtvideoContext *c, int plane_no,
-                        uint8_t *dst, int step, int stride,
-                        int width, int height,
-                        const uint8_t *src, int use_pred)
-{
-    int i, j, slice, pix;
-    int sstart, send;
-    VLC vlc;
-    UtvideoThreadData tdata[c->slices];
-    int prev, fsym;
-    const int cmask = ~(!plane_no && c->avctx->pix_fmt == PIX_FMT_YUV420P);
-
-    if (build_huff(src, &vlc, &fsym)) {
-        av_log(c->avctx, AV_LOG_ERROR, "Cannot build Huffman codes\n");
-        return AVERROR_INVALIDDATA;
-    }
-    if (fsym >= 0) { // build_huff reported a symbol to fill slices with
-        send = 0;
-        for (slice = 0; slice < c->slices; slice++) {
-            uint8_t *dest;
-
-            sstart = send;
-            send   = (height * (slice + 1) / c->slices) & cmask;
-            dest   = dst + sstart * stride;
-
-            prev = 0x80;
-            for (j = sstart; j < send; j++) {
-                for (i = 0; i < width * step; i += step) {
-                    pix = fsym;
-                    if (use_pred) {
-                        prev += pix;
-                        pix   = prev;
-                    }
-                    dest[i] = pix;
-                }
-                dest += stride;
-            }
-        }
-        return 0;
-    }
-
-    src      += 256;
-
-    for (slice = 0; slice < c->slices; slice++)
-    {
-        tdata[slice].src = src;
-        tdata[slice].dst = dst;
-
-        tdata[slice].slicenr = slice;
-
-        tdata[slice].width = width;
-        tdata[slice].height = height;
-        tdata[slice].stride = stride;
-        tdata[slice].cmask = cmask;
-        tdata[slice].use_pred = use_pred;
-
-        tdata[slice].step = step;
-
-        tdata[slice].vlc = &vlc;
-    }
-
-    if(c->avctx->execute2(c->avctx, decode_slice_plane, &tdata, NULL, c->slices))
-        goto fail;
-
-    ff_free_vlc(&vlc);
-
-    return 0;
-fail:
-    ff_free_vlc(&vlc);
-    return AVERROR_INVALIDDATA;
-}
-
 static const int rgb_order[4] = { 1, 2, 0, 3 };
 
 static void restore_rgb_planes(uint8_t *src, int step, int stride, int width, int height)
@@ -291,51 +224,51 @@ static void restore_rgb_planes(uint8_t *src, int step, int stride, int width, in
     }
 }
 
-static void restore_median_slice(AVCodecContext *avctx, void *mtdata, int jobnr, int threadnr)
+static void restore_median_slice(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
 {
-    UtvideoRestoreMedianData *mtd = (UtvideoRestoreMedianData*)mtdata;
+    UtvideoThreadData *td = tdata;
     UtvideoContext * const c = avctx->priv_data;
     int i, j;
     int A, B, C;
     uint8_t *bsrc;
     int slice_start, slice_height;
-    const int cmask = ~mtd->rmode;
+    const int cmask = ~td->rmode;
 
-    slice_start = ((jobnr * mtd->height) / c->slices) & cmask;
-    slice_height = ((((jobnr + 1) * mtd->height) / c->slices) & cmask) - slice_start;
+    slice_start = ((jobnr * td->height) / c->slices) & cmask;
+    slice_height = ((((jobnr + 1) * td->height) / c->slices) & cmask) - slice_start;
 
-    bsrc = mtd->src + slice_start * mtd->stride;
+    bsrc = td->dst + slice_start * td->stride;
 
     // first line - left neighbour prediction
     bsrc[0] += 0x80;
     A = bsrc[0];
-    for (i = mtd->step; i < mtd->width * mtd->step; i += mtd->step) {
+    for (i = td->step; i < td->width * td->step; i += td->step) {
         bsrc[i] += A;
         A = bsrc[i];
     }
-    bsrc += mtd->stride;
+    bsrc += td->stride;
     if (slice_height == 1)
         return;
     // second line - first element has top predition, the rest uses median
-    C = bsrc[-mtd->stride];
+    C = bsrc[-td->stride];
     bsrc[0] += C;
     A = bsrc[0];
-    for (i = mtd->step; i < mtd->width * mtd->step; i += mtd->step) {
-        B = bsrc[i - mtd->stride];
+    for (i = td->step; i < td->width * td->step; i += td->step) {
+        B = bsrc[i - td->stride];
         bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
         C = B;
         A = bsrc[i];
     }
-    bsrc += mtd->stride;
+    bsrc += td->stride;
     // the rest of lines use continuous median prediction
     for (j = 2; j < slice_height; j++) {
-        for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
-            B = bsrc[i - mtd->stride];
+        for (i = 0; i < td->width * td->step; i += td->step) {
+            B = bsrc[i - td->stride];
             bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
             C = B;
             A = bsrc[i];
         }
-        bsrc += mtd->stride;
+        bsrc += td->stride;
     }
 }
 
@@ -343,34 +276,34 @@ static void restore_median_slice(AVCodecContext *avctx, void *mtdata, int jobnr,
  * so restoring function should take care of possible padding between
  * two parts of the same "line".
  */
-static void restore_median_slice_il(AVCodecContext *avctx, void *mtdata, int jobnr, int threadnr)
+static void restore_median_slice_il(AVCodecContext *avctx, void *tdata, int jobnr, int threadnr)
 {
-    UtvideoRestoreMedianData *mtd = (UtvideoRestoreMedianData*)mtdata;
+    UtvideoThreadData *td = tdata;
     UtvideoContext * const c = avctx->priv_data;
 
     int i, j;
     int A, B, C;
     uint8_t *bsrc;
     int slice_start, slice_height;
-    const int cmask = ~(mtd->rmode ? 3 : 1);
-    const int stride2 = mtd->stride << 1;
+    const int cmask = ~(td->rmode ? 3 : 1);
+    const int stride2 = td->stride << 1;
 
-    slice_start    = ((jobnr * mtd->height) / c->slices) & cmask;
-    slice_height   = ((((jobnr + 1) * mtd->height) / c->slices) & cmask) - slice_start;
+    slice_start    = ((jobnr * td->height) / c->slices) & cmask;
+    slice_height   = ((((jobnr + 1) * td->height) / c->slices) & cmask) - slice_start;
     slice_height >>= 1;
 
-    bsrc = mtd->src + slice_start * mtd->stride;
+    bsrc = td->dst + slice_start * td->stride;
 
     // first line - left neighbour prediction
     bsrc[0] += 0x80;
     A = bsrc[0];
-    for (i = mtd->step; i < mtd->width * mtd->step; i += mtd->step) {
+    for (i = td->step; i < td->width * td->step; i += td->step) {
         bsrc[i] += A;
         A = bsrc[i];
     }
-    for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
-        bsrc[mtd->stride + i] += A;
-        A = bsrc[mtd->stride + i];
+    for (i = 0; i < td->width * td->step; i += td->step) {
+        bsrc[td->stride + i] += A;
+        A = bsrc[td->stride + i];
     }
     bsrc += stride2;
     if (slice_height == 1)
@@ -379,32 +312,32 @@ static void restore_median_slice_il(AVCodecContext *avctx, void *mtdata, int job
     C = bsrc[-stride2];
     bsrc[0] += C;
     A = bsrc[0];
-    for (i = mtd->step; i < mtd->width * mtd->step; i += mtd->step) {
+    for (i = td->step; i < td->width * td->step; i += td->step) {
         B = bsrc[i - stride2];
         bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
         C = B;
         A = bsrc[i];
     }
-    for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
-        B = bsrc[i - mtd->stride];
-        bsrc[mtd->stride + i] += mid_pred(A, B, (uint8_t)(A + B - C));
+    for (i = 0; i < td->width * td->step; i += td->step) {
+        B = bsrc[i - td->stride];
+        bsrc[td->stride + i] += mid_pred(A, B, (uint8_t)(A + B - C));
         C = B;
-        A = bsrc[mtd->stride + i];
+        A = bsrc[td->stride + i];
     }
     bsrc += stride2;
     // the rest of lines use continuous median prediction
     for (j = 2; j < slice_height; j++) {
-        for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
+        for (i = 0; i < td->width * td->step; i += td->step) {
             B = bsrc[i - stride2];
             bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
             C = B;
             A = bsrc[i];
         }
-        for (i = 0; i < mtd->width * mtd->step; i += mtd->step) {
-            B = bsrc[i - mtd->stride];
-            bsrc[i + mtd->stride] += mid_pred(A, B, (uint8_t)(A + B - C));
+        for (i = 0; i < td->width * td->step; i += td->step) {
+            B = bsrc[i - td->stride];
+            bsrc[i + td->stride] += mid_pred(A, B, (uint8_t)(A + B - C));
             C = B;
-            A = bsrc[i + mtd->stride];
+            A = bsrc[i + td->stride];
         }
         bsrc += stride2;
     }
@@ -415,7 +348,8 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
     UtvideoContext *c = avctx->priv_data;
-    UtvideoRestoreMedianData mtdata;
+    UtvideoThreadData tdata;
+    VLC vlc;
     int i, j;
     const uint8_t *plane_start[5];
     int plane_size, max_slice_size = 0, slice_start, slice_end, slice_size;
@@ -483,67 +417,96 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
         }
     }
 
-    mtdata.width = avctx->width;
-    mtdata.height = avctx->height;
+    tdata.width = avctx->width;
+    tdata.height = avctx->height;
+    tdata.rmode = 0;
+    tdata.cmask = ~tdata.rmode;
+    tdata.vlc = &vlc;
+    tdata.use_pred = (c->frame_pred == PRED_LEFT);
 
     switch (c->avctx->pix_fmt) {
     case PIX_FMT_RGB24:
     case PIX_FMT_RGBA:
-        mtdata.rmode = 0;
-        mtdata.stride = c->pic.linesize[0];
-        mtdata.step = c->planes;
-        for (i = 0; i < c->planes; i++) {
-            mtdata.src = c->pic.data[0] + rgb_order[i];
-            ret = decode_plane(c, i, c->pic.data[0] + rgb_order[i], c->planes,
-                               c->pic.linesize[0], avctx->width, avctx->height,
-                               plane_start[i], c->frame_pred == PRED_LEFT);
+        tdata.stride = c->pic.linesize[0];
+        tdata.step = c->planes;
+        for (tdata.plane_no = 0; tdata.plane_no < c->planes; tdata.plane_no++) {
+            tdata.src = plane_start[tdata.plane_no];
+            tdata.dst = c->pic.data[0] + rgb_order[tdata.plane_no];
+
+            if (build_huff(tdata.src, &vlc, &tdata.fsym)) {
+                av_log(avctx, AV_LOG_ERROR, "Cannot build Huffman codes\n");
+                return AVERROR_INVALIDDATA;
+            }
+
+            if (tdata.fsym < 0)
+                tdata.src      += 256;
+
+            ret = avctx->execute2(avctx, decode_slice, &tdata, NULL, c->slices);
             if (ret)
-                return ret;
+                goto fail;
             if (c->frame_pred == PRED_MEDIAN)
-                avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
+                avctx->execute2(avctx, restore_median_slice, &tdata, NULL, c->slices);
         }
         restore_rgb_planes(c->pic.data[0], c->planes, c->pic.linesize[0],
                            avctx->width, avctx->height);
         break;
-    case PIX_FMT_YUV420P:\
-        mtdata.step = 1;
-        for (i = 0; i < 3; i++) {
-            ret = decode_plane(c, i, c->pic.data[i], 1,
-                               c->pic.linesize[i], avctx->width >> !!i, avctx->height >> !!i,
-                               plane_start[i], c->frame_pred == PRED_LEFT);
+    case PIX_FMT_YUV420P:
+        tdata.step = 1;
+        for (tdata.plane_no = 0; tdata.plane_no < 3; tdata.plane_no++) {
+            tdata.src = plane_start[tdata.plane_no];
+            tdata.dst = c->pic.data[tdata.plane_no];
+
+            tdata.width = avctx->width >> !!tdata.plane_no;
+            tdata.height = avctx->height >> !!tdata.plane_no;
+            tdata.stride = c->pic.linesize[tdata.plane_no];
+
+            tdata.rmode = !tdata.plane_no;
+            tdata.cmask = ~tdata.rmode;
+
+            if (build_huff(tdata.src, &vlc, &tdata.fsym)) {
+                av_log(avctx, AV_LOG_ERROR, "Cannot build Huffman codes\n");
+                return AVERROR_INVALIDDATA;
+            }
+
+            if (tdata.fsym < 0)
+                tdata.src      += 256;
+
+            ret = avctx->execute2(avctx, decode_slice, &tdata, NULL, c->slices);
             if (ret)
-                return ret;
+                goto fail;
             if (c->frame_pred == PRED_MEDIAN) {
-                mtdata.src = c->pic.data[i];
-                mtdata.stride = c->pic.linesize[i];
-                mtdata.width = avctx->width >> !!i;
-                mtdata.height = avctx->height >> !!i;
-                mtdata.rmode = !i;
                 if (!c->interlaced) {
-                    avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
+                    avctx->execute2(avctx, restore_median_slice, &tdata, NULL, c->slices);
                 } else {
-                    avctx->execute2(avctx, restore_median_slice_il, &mtdata, NULL, c->slices);
+                    avctx->execute2(avctx, restore_median_slice_il, &tdata, NULL, c->slices);
                 }
             }
         }
         break;
     case PIX_FMT_YUV422P:
-        mtdata.step = 1;
-        mtdata.rmode = 0;
-        for (i = 0; i < 3; i++) {
-            ret = decode_plane(c, i, c->pic.data[i], 1,
-                               c->pic.linesize[i], avctx->width >> !!i, avctx->height,
-                               plane_start[i], c->frame_pred == PRED_LEFT);
+        tdata.step = 1;
+        for (tdata.plane_no = 0; tdata.plane_no < 3; tdata.plane_no++) {
+            tdata.src = plane_start[tdata.plane_no];
+            tdata.dst = c->pic.data[tdata.plane_no];
+            tdata.width = avctx->width  >> !!tdata.plane_no;
+            tdata.stride = c->pic.linesize[tdata.plane_no];
+
+            if (build_huff(tdata.src, &vlc, &tdata.fsym)) {
+                av_log(avctx, AV_LOG_ERROR, "Cannot build Huffman codes\n");
+                return AVERROR_INVALIDDATA;
+            }
+
+            if (tdata.fsym < 0)
+                tdata.src      += 256;
+
+            ret = avctx->execute2(avctx, decode_slice, &tdata, NULL, c->slices);
             if (ret)
-                return ret;
+                goto fail;
             if (c->frame_pred == PRED_MEDIAN) {
-                mtdata.src = c->pic.data[i];
-                mtdata.stride = c->pic.linesize[i];
-                mtdata.width = avctx->width  >> !!i;
                 if (!c->interlaced) {
-                    avctx->execute2(avctx, restore_median_slice, &mtdata, NULL, c->slices);
+                    avctx->execute2(avctx, restore_median_slice, &tdata, NULL, c->slices);
                 } else {
-                    avctx->execute2(avctx, restore_median_slice_il, &mtdata, NULL, c->slices);
+                    avctx->execute2(avctx, restore_median_slice_il, &tdata, NULL, c->slices);
                 }
             }
         }
@@ -555,14 +518,18 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     *data_size = sizeof(AVFrame);
     *(AVFrame*)data = c->pic;
 
+    ff_free_vlc(&vlc);
+
     /* always report that the buffer was completely consumed */
     return buf_size;
+fail:
+    ff_free_vlc(&vlc);
+    return ret;
 }
 
 static av_cold int decode_init(AVCodecContext *avctx)
 {
     UtvideoContext * const c = avctx->priv_data;
-    int i;
 
     c->avctx = avctx;
 
@@ -604,11 +571,6 @@ static av_cold int decode_init(AVCodecContext *avctx)
         return ENOMEM;
     }
 
-    for(i = 0; i < c->slices; i++)
-    {
-        c->slice_bits_size[i] = 0;
-    }        
-
     switch (avctx->codec_tag) {
     case MKTAG('U', 'L', 'R', 'G'):
         c->planes      = 3;
@@ -646,6 +608,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
     for(i = 0; i < c->slices; i++)
     {
         av_freep(&c->slice_bits[i]);
+        av_free(&c->slice_bits_size[i]);
     }
 
     return 0;
