@@ -232,10 +232,9 @@ static int restore_median_slice(AVCodecContext *avctx, void *tdata, int jobnr, i
     int A, B, C;
     uint8_t *bsrc;
     int slice_start, slice_height;
-    const int cmask = ~td->rmode;
 
-    slice_start = ((jobnr * td->height) / c->slices) & cmask;
-    slice_height = ((((jobnr + 1) * td->height) / c->slices) & cmask) - slice_start;
+    slice_start = ((jobnr * td->height) / c->slices) & td->cmask;
+    slice_height = ((((jobnr + 1) * td->height) / c->slices) & td->cmask) - slice_start;
 
     bsrc = td->dst + slice_start * td->stride;
 
@@ -437,7 +436,8 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
 
             if (build_huff(tdata.src, &vlc, &tdata.fsym)) {
                 av_log(avctx, AV_LOG_ERROR, "Cannot build Huffman codes\n");
-                return AVERROR_INVALIDDATA;
+                ret = AVERROR_INVALIDDATA;
+                goto fail;
             }
 
             if (tdata.fsym < 0)
@@ -467,7 +467,8 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
 
             if (build_huff(tdata.src, &vlc, &tdata.fsym)) {
                 av_log(avctx, AV_LOG_ERROR, "Cannot build Huffman codes\n");
-                return AVERROR_INVALIDDATA;
+                ret = AVERROR_INVALIDDATA;
+                goto fail;
             }
 
             if (tdata.fsym < 0)
@@ -495,7 +496,8 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
 
             if (build_huff(tdata.src, &vlc, &tdata.fsym)) {
                 av_log(avctx, AV_LOG_ERROR, "Cannot build Huffman codes\n");
-                return AVERROR_INVALIDDATA;
+                ret = AVERROR_INVALIDDATA;
+                goto fail;
             }
 
             if (tdata.fsym < 0)
@@ -610,8 +612,10 @@ static av_cold int decode_end(AVCodecContext *avctx)
     for(i = 0; i < c->slices; i++)
     {
         av_freep(&c->slice_bits[i]);
-        av_free(&c->slice_bits_size[i]);
     }
+
+    av_freep(&c->slice_bits);
+    av_freep(&c->slice_bits_size);
 
     return 0;
 }
@@ -624,7 +628,6 @@ AVCodec ff_utvideo_decoder = {
     .init           = decode_init,
     .close          = decode_end,
     .decode         = decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
     .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_SLICE_THREADS,
     .long_name      = NULL_IF_CONFIG_SMALL("Ut Video"),
 };
