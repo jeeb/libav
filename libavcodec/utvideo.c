@@ -560,16 +560,14 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     c->slice_bits_size = av_mallocz(sizeof(*c->slice_bits_size) * c->slices);
 
-    if(!c->slice_bits_size)
-    {
+    if(!c->slice_bits_size) {
         av_log(avctx, AV_LOG_ERROR, "Failed to malloc slice_bits_size.\n");
         return ENOMEM;
     }
 
     c->slice_bits = av_mallocz(sizeof(*c->slice_bits) * c->slices);
 
-    if(!c->slice_bits)
-    {
+    if(!c->slice_bits) {
         av_log(avctx, AV_LOG_ERROR, "Failed to malloc slice_bits.\n");
         return ENOMEM;
     }
@@ -608,8 +606,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
     if (c->pic.data[0])
         avctx->release_buffer(avctx, &c->pic);
 
-    for(i = 0; i < c->slices; i++)
-    {
+    for(i = 0; i < c->slices; i++) {
         av_freep(&c->slice_bits[i]);
     }
 
