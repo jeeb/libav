@@ -618,8 +618,9 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
 static av_cold int decode_end(AVCodecContext *avctx)
 {
-    int i;
     UtvideoContext * const c = avctx->priv_data;
+
+    int i;
 
     if (c->pic.data[0])
         avctx->release_buffer(avctx, &c->pic);
