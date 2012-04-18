@@ -135,7 +135,7 @@ static int decode_slice(AVCodecContext *avctx, void *tdata, int jobnr,
     int i, j, pix;
     int slice_data_start, slice_data_end, slice_size;
 
-    int start     = jobnr ? (td->height * jobnr / c->slices) & td->cmask : 0;
+    int start     = (td->height * jobnr / c->slices) & td->cmask;
     int end       = (td->height * (jobnr + 1) / c->slices) & td->cmask;
     int prev      = 0x80;
     uint8_t *dest = td->dst + start * td->stride;
