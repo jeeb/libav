@@ -133,16 +133,14 @@ static int decode_slice(AVCodecContext *avctx, void *tdata, int jobnr,
     GetBitContext gb;
 
     int i, j, pix;
-    int start = jobnr ? (td->height * jobnr / c->slices) & td->cmask : 0;
-    int end   = (td->height * (jobnr + 1) / c->slices) & td->cmask;
-    int prev  = 0x80;
-
-    uint8_t *slice_bits = c->slice_bits[jobnr];
-
-    uint8_t *dest;
     int slice_data_start, slice_data_end, slice_size;
 
-    dest = td->dst + start * td->stride;
+    int start     = jobnr ? (td->height * jobnr / c->slices) & td->cmask : 0;
+    int end       = (td->height * (jobnr + 1) / c->slices) & td->cmask;
+    int prev      = 0x80;
+    uint8_t *dest = td->dst + start * td->stride;
+
+    uint8_t *slice_bits = c->slice_bits[jobnr];
 
     if (td->fsym >= 0) { // build_huff reported a symbol to fill slices with
         for (j = start; j < end; j++) {
