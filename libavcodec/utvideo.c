@@ -522,11 +522,13 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
     *(AVFrame*)data = c->pic;
 
     ff_free_vlc(&vlc);
+    av_freep(&tdata);
 
     /* always report that the buffer was completely consumed */
     return buf_size;
 fail:
     ff_free_vlc(&vlc);
+    av_freep(&tdata);
     return ret;
 }
 
