@@ -245,32 +245,32 @@ static int restore_median_slice(AVCodecContext *avctx, void *tdata, int jobnr,
 
     // first line - left neighbour prediction
     bsrc[0] += 0x80;
-    A = bsrc[0];
+    A        = bsrc[0];
     for (i = td->step; i < td->width * td->step; i += td->step) {
         bsrc[i] += A;
-        A = bsrc[i];
+        A        = bsrc[i];
     }
     bsrc += td->stride;
     if (slice_height == 1)
         return 0;
     // second line - first element has top predition, the rest uses median
-    C = bsrc[-td->stride];
+    C        = bsrc[-td->stride];
     bsrc[0] += C;
-    A = bsrc[0];
+    A        = bsrc[0];
     for (i = td->step; i < td->width * td->step; i += td->step) {
-        B = bsrc[i - td->stride];
+        B        = bsrc[i - td->stride];
         bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-        C = B;
-        A = bsrc[i];
+        C        = B;
+        A        = bsrc[i];
     }
     bsrc += td->stride;
     // the rest of lines use continuous median prediction
     for (j = 2; j < slice_height; j++) {
         for (i = 0; i < td->width * td->step; i += td->step) {
-            B = bsrc[i - td->stride];
+            B        = bsrc[i - td->stride];
             bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-            C = B;
-            A = bsrc[i];
+            C        = B;
+            A        = bsrc[i];
         }
         bsrc += td->stride;
     }
@@ -304,48 +304,48 @@ static int restore_median_slice_il(AVCodecContext *avctx, void *tdata,
 
     // first line - left neighbour prediction
     bsrc[0] += 0x80;
-    A = bsrc[0];
+    A        = bsrc[0];
     for (i = td->step; i < td->width * td->step; i += td->step) {
         bsrc[i] += A;
-        A = bsrc[i];
+        A        = bsrc[i];
     }
     for (i = 0; i < td->width * td->step; i += td->step) {
         bsrc[td->stride + i] += A;
-        A = bsrc[td->stride + i];
+        A                     = bsrc[td->stride + i];
     }
     bsrc += stride2;
     if (slice_height == 1)
         return 0;
     // second line - first element has top prediction, the rest uses median
-    C = bsrc[-stride2];
+    C        = bsrc[-stride2];
     bsrc[0] += C;
-    A = bsrc[0];
+    A        = bsrc[0];
     for (i = td->step; i < td->width * td->step; i += td->step) {
-        B = bsrc[i - stride2];
+        B        = bsrc[i - stride2];
         bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-        C = B;
-        A = bsrc[i];
+        C        = B;
+        A        = bsrc[i];
     }
     for (i = 0; i < td->width * td->step; i += td->step) {
-        B = bsrc[i - td->stride];
+        B                     = bsrc[i - td->stride];
         bsrc[td->stride + i] += mid_pred(A, B, (uint8_t)(A + B - C));
-        C = B;
-        A = bsrc[td->stride + i];
+        C                     = B;
+        A                     = bsrc[td->stride + i];
     }
     bsrc += stride2;
     // the rest of lines use continuous median prediction
     for (j = 2; j < slice_height; j++) {
         for (i = 0; i < td->width * td->step; i += td->step) {
-            B = bsrc[i - stride2];
+            B        = bsrc[i - stride2];
             bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-            C = B;
-            A = bsrc[i];
+            C        = B;
+            A        = bsrc[i];
         }
         for (i = 0; i < td->width * td->step; i += td->step) {
-            B = bsrc[i - td->stride];
+            B                     = bsrc[i - td->stride];
             bsrc[td->stride + i] += mid_pred(A, B, (uint8_t)(A + B - C));
-            C = B;
-            A = bsrc[td->stride + i];
+            C                     = B;
+            A                     = bsrc[td->stride + i];
         }
         bsrc += stride2;
     }
@@ -417,7 +417,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size,
         return AVERROR_PATCHWELCOME;
     }
 
-    for(i = 0; i < c->slices; i++) {
+    for (i = 0; i < c->slices; i++) {
         av_fast_malloc(&c->slice_bits[i], &c->slice_bits_size[i],
                        max_slice_size + FF_INPUT_BUFFER_PADDING_SIZE);
 
@@ -578,14 +578,14 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     c->slice_bits_size = av_mallocz(sizeof(*c->slice_bits_size) * c->slices);
 
-    if(!c->slice_bits_size) {
+    if (!c->slice_bits_size) {
         av_log(avctx, AV_LOG_ERROR, "Cannot allocate temporary buffer sizes\n");
         return AVERROR(ENOMEM);
     }
 
     c->slice_bits = av_mallocz(sizeof(*c->slice_bits) * c->slices);
 
-    if(!c->slice_bits) {
+    if (!c->slice_bits) {
         av_log(avctx, AV_LOG_ERROR, "Cannot allocate temporary buffer\n");
         return AVERROR(ENOMEM);
     }
