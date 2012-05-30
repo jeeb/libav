@@ -287,52 +287,7 @@ static void restore_median(uint8_t *src, int step, int stride,
     }
 }
 
-static void restore_median_slice_c(uint8_t *src, int step, int stride,
-                                   int width, int slice_start,
-                                   int slice_height)
-{
-    int i, j, plane;
-    int A, B, C;
-    uint8_t *bsrc;
-
-    for (plane = 0; plane < step; plane++) {
-        bsrc = (src + rgb_order[plane]) + slice_start * stride;
-
-        // first line - left neighbour prediction
-        bsrc[0] += 0x80;
-        A = bsrc[0];
-        for (i = step; i < width * step; i += step) {
-            bsrc[i] += A;
-            A        = bsrc[i];
-        }
-        bsrc += stride;
-        if (slice_height == 1)
-            continue;
-        // second line - first element has top prediction, the rest uses median
-        C        = bsrc[-stride];
-        bsrc[0] += C;
-        A        = bsrc[0];
-        for (i = step; i < width * step; i += step) {
-            B        = bsrc[i - stride];
-            bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-            C        = B;
-            A        = bsrc[i];
-        }
-        bsrc += stride;
-        // the rest of lines use continuous median prediction
-        for (j = 2; j < slice_height; j++) {
-            for (i = 0; i < width * step; i += step) {
-                B        = bsrc[i - stride];
-                bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-                C        = B;
-                A        = bsrc[i];
-            }
-            bsrc += stride;
-        }
-    }
-}
-
-static void restore_median_rgb(uint8_t *src, int step, int stride,
+static void restore_median_rgb(UtvideoDSPContext *udsp, uint8_t *src, int step, int stride,
                            int width, int height, int slices, int rmode)
 {
     int slice, slice_start;
@@ -340,7 +295,7 @@ static void restore_median_rgb(uint8_t *src, int step, int stride,
 
     for (slice = 0; slice < slices; slice++) {
         slice_start = ((slice * height) / slices) & cmask;
-        restore_median_slice_c(src, step, stride, width,
+        udsp->restore_median_slice(src, step, stride, width,
                                slice_start,
                                ((((slice + 1) * height) / slices) & cmask) -
                                slice_start);
@@ -502,7 +457,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size,
                 return ret;
         }
         if (c->frame_pred == PRED_MEDIAN)
-            restore_median_rgb(c->pic.data[0], c->planes,
+            restore_median_rgb(&c->udsp, c->pic.data[0], c->planes,
                            c->pic.linesize[0], avctx->width, avctx->height,
                            c->slices, 0);
 

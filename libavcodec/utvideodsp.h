@@ -27,7 +27,8 @@
 
 typedef struct UtvideoDSPContext {
     void (* restore_median_slice) (uint8_t *src, int step, int stride,
-                             int width, int height, int slices, int rmode);
+                                   int width, int slice_start,
+                                   int slice_height);
 } UtvideoDSPContext;
 
 void ff_utvideodsp_init(UtvideoDSPContext *dsp);
