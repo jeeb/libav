@@ -30,6 +30,7 @@
 #include "avcodec.h"
 #include "bytestream.h"
 #include "get_bits.h"
+#include "dsputil.h"
 #include "thread.h"
 #include "utvideodsp.h"
 

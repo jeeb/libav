@@ -22,7 +22,6 @@
 #ifndef AVCODEC_UTVIDEODSP_H
 #define AVCODEC_UTVIDEODSP_H
 
-#include "dsputil.h"
 #include "mathops.h"
 
 typedef struct UtvideoDSPContext {
