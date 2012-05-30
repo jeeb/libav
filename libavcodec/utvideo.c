@@ -30,8 +30,8 @@
 #include "avcodec.h"
 #include "bytestream.h"
 #include "get_bits.h"
-#include "dsputil.h"
 #include "thread.h"
+#include "utvideodsp.h"
 
 enum {
     PRED_NONE = 0,
@@ -41,6 +41,7 @@ enum {
 };
 
 typedef struct UtvideoContext {
+    UtvideoDSPContext udsp;
     AVCodecContext *avctx;
     AVFrame pic;
     DSPContext dsp;
@@ -506,6 +507,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
     c->avctx = avctx;
 
     ff_dsputil_init(&c->dsp, avctx);
+    ff_utvideodsp_init(&c->udsp);
 
     if (avctx->extradata_size < 16) {
         av_log(avctx, AV_LOG_ERROR,

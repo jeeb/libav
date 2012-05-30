@@ -28,6 +28,7 @@ MMX-OBJS-$(CONFIG_PRORES_DECODER)      += x86/proresdsp-init.o
 MMX-OBJS-$(CONFIG_RV30_DECODER)        += x86/rv34dsp_init.o
 MMX-OBJS-$(CONFIG_RV40_DECODER)        += x86/rv34dsp_init.o            \
                                           x86/rv40dsp_init.o
+MMX-OBJS-$(CONFIG_UTVIDEO_DECODER)     += x86/utvideodsp-init.o
 MMX-OBJS-$(CONFIG_VC1_DECODER)         += x86/vc1dsp_mmx.o
 MMX-OBJS-$(CONFIG_VP5_DECODER)         += x86/vp56dsp_init.o
 MMX-OBJS-$(CONFIG_VP6_DECODER)         += x86/vp56dsp_init.o
@@ -59,6 +60,7 @@ YASM-OBJS-$(CONFIG_PRORES_DECODER)     += x86/proresdsp.o
 YASM-OBJS-$(CONFIG_RV30_DECODER)       += x86/rv34dsp.o
 YASM-OBJS-$(CONFIG_RV40_DECODER)       += x86/rv34dsp.o                 \
                                           x86/rv40dsp.o
+YASM-OBJS-$(CONFIG_UTVIDEO_DECODER)    += x86/utvideodsp.o
 YASM-OBJS-$(CONFIG_VC1_DECODER)        += x86/vc1dsp_yasm.o
 YASM-OBJS-$(CONFIG_VP3_DECODER)        += x86/vp3dsp.o
 YASM-OBJS-$(CONFIG_VP5_DECODER)        += x86/vp3dsp.o
