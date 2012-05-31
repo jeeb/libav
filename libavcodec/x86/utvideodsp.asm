@@ -22,3 +22,15 @@
 
 %include "x86inc.asm"
 %include "x86util.asm"
+
+;-----------------------------------------------------------------------------
+; restore_median_slice(uint8_t *src, int step, int stride, int width,
+;                      int slice_start, int slice_height)
+; %1 = nr. of xmm registers used
+;-----------------------------------------------------------------------------
+%macro RESTORE_MEDIAN_SLICE 1
+cglobal restore_median_slice, 6, 8, %1, src, step, stride, width, slice_start, slice_height, herp, derp
+    movd  m0, [src+(slice_start*stride)]
+    paddb m0, 0x00808080
+    RET
+%endmacro
