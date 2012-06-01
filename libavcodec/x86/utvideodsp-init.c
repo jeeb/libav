@@ -21,7 +21,14 @@
 
 #include "libavcodec/utvideodsp.h"
 
+restore_median_slice(uint8_t *src, int step, int stride, int width,
+                     int slice_start, int slice_height)
+
 void ff_utvideodsp_x86_init(UtvideoDSPContext *dsp)
 {
+#if HAVE_YASM
+    int flags = av_get_cpu_flags();
 
+    dsp->restore_median_slice = restore_median_slice;
+#endif /* HAVE_YASM */
 }
