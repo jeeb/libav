@@ -25,8 +25,7 @@
 
 SECTION_RODATA
 
-pd_80_3: dd 0x00808080
-pd_80_4: dd 0x80808080
+pb_128: times 4 db 0x80
 
 section .text
 
@@ -36,11 +35,20 @@ section .text
 ; %1 = nr. of xmm registers used
 ;-----------------------------------------------------------------------------
 %macro RESTORE_MEDIAN_SLICE 1
-cglobal restore_median_slice, 6, 6, %1, src, step, stride, width, slice_start, slice_height
-    imul slice_start, stride
-    add          src, slice_start
-    movd          m0, [src]
-    movd          m1, [pd_80_3]
-    paddb         m0, m1
+cglobal restore_median_slice, 7, 7, %1, src, dst, step, stride, width, slice_start, slice_height
+    movd           r0, 
+    imul  slice_start, stride
+    add           src, slice_start
+    movd           m0, [src]
+    movd           m1, [pb_128]
+    paddb          m0, m1
+    movd        [src], m0
+    add           src, step
+.loop
+    movd           m1, [src]
+    paddb          m0, m1
+    movd        [src], m0
+    add           src, step
+    jmp .loop
     RET
 %endmacro

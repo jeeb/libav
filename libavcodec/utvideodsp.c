@@ -21,47 +21,54 @@
 
 #include "utvideodsp.h"
 
-static void restore_median_slice_c(uint8_t *src, int step, int stride,
+static void restore_median_slice_c(uint8_t *src, uint8_t *dst, int step, int stride,
                                    int width, int slice_start,
                                    int slice_height)
 {
     int i, j, plane;
     int A, B, C;
     uint8_t *bsrc;
+    uint8_t *bdst;
 
     for (plane = 0; plane < step; plane++) {
         bsrc = (src + plane) + slice_start * stride;
+        bdst = (dst + plane) + slice_start * stride;
 
         // first line - left neighbour prediction
-        bsrc[0] += 0x80;
-        A = bsrc[0];
+        bdst[0] = bsrc[0] + 0x80;
+        A = bdst[0];
         for (i = step; i < width * step; i += step) {
-            bsrc[i] += A;
-            A        = bsrc[i];
+            bdst[i] = bsrc[i] + A;
+            A       = bdst[i];
         }
         bsrc += stride;
+        bdst += stride;
+
         if (slice_height == 1)
             continue;
         // second line - first element has top prediction, the rest uses median
-        C        = bsrc[-stride];
-        bsrc[0] += C;
-        A        = bsrc[0];
+        C       = bdst[-stride];
+        bdst[0] = bsrc[0] + C;
+        A       = bdst[0];
         for (i = step; i < width * step; i += step) {
-            B        = bsrc[i - stride];
-            bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-            C        = B;
-            A        = bsrc[i];
+            B       = bdst[i - stride];
+            bdst[i] = bsrc[i] + mid_pred(A, B, (uint8_t)(A + B - C));
+            C       = B;
+            A       = bdst[i];
         }
         bsrc += stride;
+        bdst += stride;
+
         // the rest of lines use continuous median prediction
         for (j = 2; j < slice_height; j++) {
             for (i = 0; i < width * step; i += step) {
-                B        = bsrc[i - stride];
-                bsrc[i] += mid_pred(A, B, (uint8_t)(A + B - C));
-                C        = B;
-                A        = bsrc[i];
+                B       = bdst[i - stride];
+                bdst[i] = bsrc[i] + mid_pred(A, B, (uint8_t)(A + B - C));
+                C       = B;
+                A       = bdst[i];
             }
             bsrc += stride;
+            bdst += stride;
         }
     }
 }

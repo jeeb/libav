@@ -56,6 +56,7 @@ typedef struct UtvideoContext {
 
     uint8_t *slice_bits;
     int slice_bits_size;
+    uint8_t *src;
 } UtvideoContext;
 
 typedef struct HuffEntry {
@@ -288,15 +289,18 @@ static void restore_median(uint8_t *src, int step, int stride,
     }
 }
 
-static void restore_median_rgb(UtvideoDSPContext *udsp, uint8_t *src, int step, int stride,
-                           int width, int height, int slices, int rmode)
+static void restore_median_rgb(UtvideoDSPContext *udsp, uint8_t *src,
+                               uint8_t *dst, int step, int stride,
+                               int width, int height, int slices, int rmode)
 {
     int slice, slice_start;
     const int cmask = ~rmode;
 
+
+
     for (slice = 0; slice < slices; slice++) {
         slice_start = ((slice * height) / slices) & cmask;
-        udsp->restore_median_slice(src, step, stride, width,
+        udsp->restore_median_slice(src, dst, step, stride, width,
                                slice_start,
                                ((((slice + 1) * height) / slices) & cmask) -
                                slice_start);
@@ -447,18 +451,26 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size,
         return AVERROR(ENOMEM);
     }
 
+    c->src = av_mallocz(c->pic.linesize[0] * avctx->height);
+
+    if (!c->src) {
+        av_log(avctx, AV_LOG_ERROR, "Cannot allocate src buffer\n");
+        return AVERROR(ENOMEM);
+    }
+
+
     switch (c->avctx->pix_fmt) {
     case PIX_FMT_RGB24:
     case PIX_FMT_RGBA:
         for (i = 0; i < c->planes; i++) {
-            ret = decode_plane(c, i, c->pic.data[0] + rgb_order[i], c->planes,
+            ret = decode_plane(c, i, c->src + rgb_order[i], c->planes,
                                c->pic.linesize[0], avctx->width, avctx->height,
                                plane_start[i], c->frame_pred == PRED_LEFT);
             if (ret)
                 return ret;
         }
         if (c->frame_pred == PRED_MEDIAN)
-            restore_median_rgb(&c->udsp, c->pic.data[0], c->planes,
+            restore_median_rgb(&c->udsp, c->src, c->pic.data[0], c->planes,
                            c->pic.linesize[0], avctx->width, avctx->height,
                            c->slices, 0);
 
@@ -584,6 +596,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
         ff_thread_release_buffer(avctx, &c->pic);
 
     av_freep(&c->slice_bits);
+    av_freep(&c->src);
 
     return 0;
 }

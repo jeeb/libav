@@ -25,7 +25,7 @@
 #include "mathops.h"
 
 typedef struct UtvideoDSPContext {
-    void (* restore_median_slice) (uint8_t *src, int step, int stride,
+    void (* restore_median_slice) (uint8_t *src, uint8_t *dst, int step, int stride,
                                    int width, int slice_start,
                                    int slice_height);
 } UtvideoDSPContext;
