@@ -221,7 +221,7 @@ fail:
 
 static const int rgb_order[4] = { 1, 2, 0, 3 };
 
-static void restore_rgb_planes(uint8_t *src, int step, int stride, int width,
+static void restore_rgb_planes(uint8_t *src, uint8_t *dst, int step, int stride, int width,
                                int height)
 {
     int i, j;
@@ -232,10 +232,12 @@ static void restore_rgb_planes(uint8_t *src, int step, int stride, int width,
             r = src[i];
             g = src[i + 1];
             b = src[i + 2];
-            src[i]     = r + g - 0x80;
-            src[i + 2] = b + g - 0x80;
+            dst[i]     = r + g - 0x80;
+            dst[i + 1] = g;
+            dst[i + 2] = b + g - 0x80;
         }
         src += stride;
+        dst += stride;
     }
 }
 
@@ -469,13 +471,16 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size,
             if (ret)
                 return ret;
         }
-        if (c->frame_pred == PRED_MEDIAN)
+        if (c->frame_pred == PRED_MEDIAN) {
             restore_median_rgb(&c->udsp, c->src, c->pic.data[0], c->planes,
                            c->pic.linesize[0], avctx->width, avctx->height,
                            c->slices, 0);
-
-        restore_rgb_planes(c->pic.data[0], c->planes, c->pic.linesize[0],
-                           avctx->width, avctx->height);
+            restore_rgb_planes(c->pic.data[0], c->pic.data[0], c->planes, c->pic.linesize[0],
+                               avctx->width, avctx->height);
+        } else {
+            restore_rgb_planes(c->src, c->pic.data[0], c->planes, c->pic.linesize[0],
+                               avctx->width, avctx->height);
+        }
         break;
     case PIX_FMT_YUV420P:
         for (i = 0; i < 3; i++) {
