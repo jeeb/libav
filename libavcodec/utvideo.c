@@ -227,17 +227,36 @@ static void restore_rgb_planes(uint8_t *src, uint8_t *dst, int step, int stride,
     int i, j;
     uint8_t r, g, b;
 
-    for (j = 0; j < height; j++) {
-        for (i = 0; i < width * step; i += step) {
-            r = src[i];
-            g = src[i + 1];
-            b = src[i + 2];
-            dst[i]     = r + g - 0x80;
-            dst[i + 1] = g;
-            dst[i + 2] = b + g - 0x80;
-        }
-        src += stride;
-        dst += stride;
+    switch (step) {
+        case 4: // RGBA, copy the alpha channel as well.
+            for (j = 0; j < height; j++) {
+                for (i = 0; i < width * step; i += step) {
+                    r = src[i];
+                    g = src[i + 1];
+                    b = src[i + 2];
+                    dst[i]     = r + g - 0x80;
+                    dst[i + 1] = g;
+                    dst[i + 2] = b + g - 0x80;
+                    dst[i + 3] = src[i + 3];
+                }
+                src += stride;
+                dst += stride;
+            }
+            break;
+        default: //RGB
+            for (j = 0; j < height; j++) {
+                for (i = 0; i < width * step; i += step) {
+                    r = src[i];
+                    g = src[i + 1];
+                    b = src[i + 2];
+                    dst[i]     = r + g - 0x80;
+                    dst[i + 1] = g;
+                    dst[i + 2] = b + g - 0x80;
+                }
+                src += stride;
+                dst += stride;
+            }
+            break;
     }
 }
 
@@ -297,8 +316,6 @@ static void restore_median_rgb(UtvideoDSPContext *udsp, uint8_t *src,
 {
     int slice, slice_start;
     const int cmask = ~rmode;
-
-
 
     for (slice = 0; slice < slices; slice++) {
         slice_start = ((slice * height) / slices) & cmask;
