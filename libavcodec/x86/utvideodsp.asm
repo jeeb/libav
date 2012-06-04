@@ -36,8 +36,8 @@ section .text
 ;-----------------------------------------------------------------------------
 %macro RESTORE_MEDIAN_SLICE 1
 cglobal restore_median_slice, 7, 7, %1, src, dst, step, stride, width, slice_start, slice_height
-    movd           r0, 
-    imul  slice_start, stride
+    movd           r0, stride
+    imul  slice_start, r0
     add           src, slice_start
     movd           m0, [src]
     movd           m1, [pb_128]
