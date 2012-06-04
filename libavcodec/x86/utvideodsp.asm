@@ -30,25 +30,33 @@ pb_128: times 4 db 0x80
 section .text
 
 ;-----------------------------------------------------------------------------
-; restore_median_slice(uint8_t *src, int step, int stride, int width,
-;                      int slice_start, int slice_height)
+; restore_median_slice(uint8_t *src, uint8_t *dst, int step, int stride,
+;                      int width, int slice_start, int slice_height)
 ; %1 = nr. of xmm registers used
 ;-----------------------------------------------------------------------------
 %macro RESTORE_MEDIAN_SLICE 1
 cglobal restore_median_slice, 7, 7, %1, src, dst, step, stride, width, slice_start, slice_height
-    movd           r0, stride
-    imul  slice_start, r0
-    add           src, slice_start
+%if ARCH_X86_64
+    movsxd      stepq, stepd
+%endif
+    movd           m2, stride
+    imul  slice_start, m2
+    movd           m4, slice_start
+    add           src, m4
+    add           dst, m4
     movd           m0, [src]
-    movd           m1, [pb_128]
-    paddb          m0, m1
-    movd        [src], m0
-    add           src, step
-.loop
+    paddb          m0, [pb_128]
+    movd        [dst], m0
+    add          srcq, stepq
+    add          dstq, stepq
+    dec        widthd
+.firstline
     movd           m1, [src]
     paddb          m0, m1
-    movd        [src], m0
-    add           src, step
-    jmp .loop
+    movd        [dst], m0
+    add          srcq, stepq
+    add          dstq, stepq
+    dec        widthd
+    jg .firstline
     RET
 %endmacro
