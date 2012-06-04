@@ -39,23 +39,27 @@ INIT_MMX
 cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_start, slice_height
 %if ARCH_X86_64
     movsxd        stepq, stepd
-    movsxd slice_startq, slice_startd
 %endif
     imul   slice_startq, strideq
     add            srcq, slice_startq
     add            dstq, slice_startq
+    xor    slice_startq, slice_startq ; zero the value, used as counter.
     movd             m0, [srcq]
     paddb            m0, [pb_128]
     movd         [dstq], m0
     add            srcq, stepq
     add            dstq, stepq
-    dec          widthd
+    inc    slice_startq
+    cmp          widthq, slice_startq
+    je .return
 .firstline
     movd             m1, [srcq]
     paddb            m0, m1
     movd         [dstq], m0
     add            srcq, stepq
     add            dstq, stepq
-    dec          widthd
+    inc    slice_startq
+    cmp          widthq, slice_startq
     jg .firstline
+.return
     RET
