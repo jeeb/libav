@@ -50,8 +50,6 @@ cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_star
     add            srcq, stepq
     add            dstq, stepq
     inc    slice_startq
-    cmp          widthq, slice_startq
-    je .return
 .firstline
     movd             m1, [srcq]
     paddb            m0, m1
@@ -59,7 +57,7 @@ cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_star
     add            srcq, stepq
     add            dstq, stepq
     inc    slice_startq
-    cmp          widthq, slice_startq
-    jg .firstline
+    cmp    slice_startq, widthq
+    jl .firstline
 .return
     RET
