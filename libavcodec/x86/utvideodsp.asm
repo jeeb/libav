@@ -29,34 +29,33 @@ pb_128: times 4 db 0x80
 
 section .text
 
+INIT_MMX
+
 ;-----------------------------------------------------------------------------
 ; restore_median_slice(uint8_t *src, uint8_t *dst, int step, int stride,
 ;                      int width, int slice_start, int slice_height)
 ; %1 = nr. of xmm registers used
 ;-----------------------------------------------------------------------------
-%macro RESTORE_MEDIAN_SLICE 1
-cglobal restore_median_slice, 7, 7, %1, src, dst, step, stride, width, slice_start, slice_height
+cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_start, slice_height
 %if ARCH_X86_64
-    movsxd      stepq, stepd
+    movsxd        stepq, stepd
+    movsxd slice_startq, slice_startd
 %endif
-    movd           m2, stride
-    imul  slice_start, m2
-    movd           m4, slice_start
-    add           src, m4
-    add           dst, m4
-    movd           m0, [src]
-    paddb          m0, [pb_128]
-    movd        [dst], m0
-    add          srcq, stepq
-    add          dstq, stepq
-    dec        widthd
+    imul   slice_startq, strideq
+    add            srcq, slice_startq
+    add            dstq, slice_startq
+    movd             m0, [srcq]
+    paddb            m0, [pb_128]
+    movd         [dstq], m0
+    add            srcq, stepq
+    add            dstq, stepq
+    dec          widthd
 .firstline
-    movd           m1, [src]
-    paddb          m0, m1
-    movd        [dst], m0
-    add          srcq, stepq
-    add          dstq, stepq
-    dec        widthd
+    movd             m1, [srcq]
+    paddb            m0, m1
+    movd         [dstq], m0
+    add            srcq, stepq
+    add            dstq, stepq
+    dec          widthd
     jg .firstline
     RET
-%endmacro
