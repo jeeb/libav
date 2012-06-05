@@ -43,7 +43,7 @@ cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_star
     imul   slice_startq, strideq
     add            srcq, slice_startq
     add            dstq, slice_startq
-    xor    slice_startq, slice_startq ; zero the value, used as counter.
+    xor    slice_startq, slice_startq   ; zero the value, used as counter
     movd             m0, [srcq]
     paddb            m0, [pb_128]
     movd         [dstq], m0
@@ -58,6 +58,18 @@ cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_star
     add            dstq, stepq
     inc    slice_startq
     cmp    slice_startq, widthq
-    jl .firstline
+    jl .firstline                       ; loop the first line until counter = width
+    dec   slice_heightq
+    jle .return                         ; if slice_height == 1, we return
+    imul         widthq, stepq
+    sub            srcq, widthq
+    sub            dstq, widthq
+    movd             m0, [dstq]
+    add            srcq, strideq
+    add            dstq, strideq
+    movd             m1, [srcq]
+    paddb            m0, m1             ; m0 = A
+    movd         [dstq], m0
+    dec    slice_startq
 .return
     RET
