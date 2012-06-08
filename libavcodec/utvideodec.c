@@ -32,40 +32,7 @@
 #include "get_bits.h"
 #include "dsputil.h"
 #include "thread.h"
-
-enum {
-    PRED_NONE = 0,
-    PRED_LEFT,
-    PRED_GRADIENT,
-    PRED_MEDIAN,
-};
-
-typedef struct UtvideoContext {
-    AVCodecContext *avctx;
-    AVFrame pic;
-    DSPContext dsp;
-
-    uint32_t frame_info_size, flags, frame_info;
-    int planes;
-    int slices;
-    int compression;
-    int interlaced;
-    int frame_pred;
-
-    uint8_t *slice_bits;
-    int slice_bits_size;
-} UtvideoContext;
-
-typedef struct HuffEntry {
-    uint8_t sym;
-    uint8_t len;
-} HuffEntry;
-
-static int huff_cmp(const void *a, const void *b)
-{
-    const HuffEntry *aa = a, *bb = b;
-    return (aa->len - bb->len)*256 + aa->sym - bb->sym;
-}
+#include "utvideo.h"
 
 static int build_huff(const uint8_t *src, VLC *vlc, int *fsym)
 {
@@ -82,7 +49,7 @@ static int build_huff(const uint8_t *src, VLC *vlc, int *fsym)
         he[i].sym = i;
         he[i].len = *src++;
     }
-    qsort(he, 256, sizeof(*he), huff_cmp);
+    qsort(he, 256, sizeof(*he), huff_cmp_len);
 
     if (!he[0].len) {
         *fsym = he[0].sym;
@@ -215,8 +182,6 @@ fail:
     ff_free_vlc(&vlc);
     return AVERROR_INVALIDDATA;
 }
-
-static const int rgb_order[4] = { 1, 2, 0, 3 };
 
 static void restore_rgb_planes(uint8_t *src, int step, int stride, int width,
                                int height)
