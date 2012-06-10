@@ -64,6 +64,7 @@ cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_star
     imul         widthq, stepq
     sub            srcq, widthq
     sub            dstq, widthq
+    movd             m2, [dstq]         ; m2 = C
     movd             m0, [dstq]
     add            srcq, strideq
     add            dstq, strideq
@@ -71,5 +72,14 @@ cglobal restore_median_slice, 7, 7, 0, src, dst, step, stride, width, slice_star
     paddb            m0, m1             ; m0 = A
     movd         [dstq], m0
     dec    slice_startq
+    add            srcq, stepq
+    add            dstq, stepq
+    sub            dstq, strideq
+    movd             m3, [dstq]         ; m3 = B
+    movd             m4, [dstq]
+    movd             m1, [srcq]
+    add            dstq, strideq
+    paddb            m4, m0             ; m4 = B + A
+    psubd            m4, m2             ; m4 = (B + A) - C
 .return
     RET
