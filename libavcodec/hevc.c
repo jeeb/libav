@@ -2438,8 +2438,8 @@ static av_cold int hevc_decode_free(AVCodecContext *avctx)
         av_freep(&sc->pps_list[i]);
     }
     av_freep(&s->HEVClc);
-    av_freep(&sc);
     pic_arrays_free(s);
+    av_freep(&sc);
 
     return 0;
 }
