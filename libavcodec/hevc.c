@@ -41,7 +41,6 @@
  * Section 5.7
  */
 //#define POC_DISPLAY_MD5
-#define WPP1
 static void pic_arrays_free(HEVCContext *s)
 {
     int i;
@@ -1981,9 +1980,7 @@ static int hls_slice_data_wpp(HEVCContext *s, AVPacket *avpkt)
     int *arg = av_malloc((sc->sh.num_entry_point_offsets+1)*sizeof(int));
     int i, j, res = 0;
     int offset;
-#ifdef WPP1
     int startheader, cmpt = 0;
-#endif
 
     if(!sc->ctb_entry_count) {
         sc->ctb_entry_count = av_malloc((sc->sh.num_entry_point_offsets+1)*sizeof(int));
@@ -2012,16 +2009,13 @@ static int hls_slice_data_wpp(HEVCContext *s, AVPacket *avpkt)
 
     offset = (lc->gb->index>>3);
 
-#ifdef WPP1
     for(j=0, cmpt = 0,startheader=offset+sc->sh.entry_point_offset[0]; j< sc->skipped_bytes; j++){
         if(sc->skipped_bytes_pos[j] >= offset && sc->skipped_bytes_pos[j] < startheader){
             startheader--;
             cmpt++;
         }
     }
-#endif
     for(i=1; i< sc->sh.num_entry_point_offsets; i++) {
-#ifdef WPP1
         offset += (sc->sh.entry_point_offset[i-1]-cmpt);
         for(j=0, cmpt=0, startheader=offset+sc->sh.entry_point_offset[i]; j< sc->skipped_bytes; j++){
             if(sc->skipped_bytes_pos[j] >= offset && sc->skipped_bytes_pos[j] < startheader){
@@ -2030,18 +2024,10 @@ static int hls_slice_data_wpp(HEVCContext *s, AVPacket *avpkt)
             }
         }
         sc->sh.size[i-1] = sc->sh.entry_point_offset[i]-cmpt;
-#else
-        offset += (sc->sh.entry_point_offset[i-1]);
-        sc->sh.size[i-1] = sc->sh.entry_point_offset[i];
-#endif
         sc->sh.offset[i-1] = offset;
     }
     if(sc->sh.num_entry_point_offsets!= 0) {
-#ifdef WPP1
         offset += sc->sh.entry_point_offset[sc->sh.num_entry_point_offsets-1]-cmpt;
-#else
-        offset += sc->sh.entry_point_offset[sc->sh.num_entry_point_offsets-1];
-#endif
         sc->sh.size[sc->sh.num_entry_point_offsets-1] = avpkt->size-offset;
         sc->sh.offset[sc->sh.num_entry_point_offsets-1] = offset;
     }
