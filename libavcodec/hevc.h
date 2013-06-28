@@ -821,8 +821,11 @@ typedef struct HEVCSharedContext {
     
     int skipped_bytes;
     int *skipped_bytes_pos;
-    int skipped_buf_size;
-    uint8_t *data;
+    int skipped_bytes_pos_size;
+
+    uint8_t *rbsp_buffer;
+    int rbsp_buffer_size;
+
     int ERROR;
 
 } HEVCSharedContext;
@@ -830,7 +833,7 @@ typedef struct HEVCSharedContext {
 typedef struct HEVCContext {
     AVClass *c;  // needed by private avoptions
     AVCodecContext      *avctx;
-    
+
     struct HEVCContext  *sList[MAX_NB_THREADS];
     
     HEVCSharedContext   *HEVCsc;
