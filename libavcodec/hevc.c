@@ -2402,6 +2402,16 @@ static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
     return 0;
 }
 
+static int compare_md5(uint8_t *md5_in1, uint8_t *md5_in2)
+{
+    int i;
+    for (i = 0; i < 16; i++)
+        if (md5_in1[i] != md5_in2[i])
+            return 0;
+    return 1;
+}
+
+
 static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
                              AVPacket *avpkt)
 {
@@ -2425,13 +2435,21 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
     *got_output = ret;
 
     if (s->decode_checksum_sei) {
+        int cIdx;
+        uint8_t md5[3][16];
         AVFrame *frame = sc->ref->frame;
 #ifdef POC_DISPLAY_MD5
         int poc        = sc->poc;
 #endif
-        calc_md5(sc->md5[0], frame->data[0], frame->linesize[0], frame->width  , frame->height  );
-        calc_md5(sc->md5[1], frame->data[1], frame->linesize[1], frame->width/2, frame->height/2);
-        calc_md5(sc->md5[2], frame->data[2], frame->linesize[2], frame->width/2, frame->height/2);
+        calc_md5(md5[0], frame->data[0], frame->linesize[0], frame->width  , frame->height  );
+        calc_md5(md5[1], frame->data[1], frame->linesize[1], frame->width/2, frame->height/2);
+        calc_md5(md5[2], frame->data[2], frame->linesize[2], frame->width/2, frame->height/2);
+        for( cIdx = 0; cIdx < 3/*((s->sps->chroma_format_idc == 0) ? 1 : 3)*/; cIdx++ ) {
+            if (!compare_md5(md5[cIdx], s->HEVCsc->md5[cIdx]) && s->HEVCsc->is_decoded)
+                av_log(s->avctx, AV_LOG_ERROR, "md5 not ok %d\n", cIdx);
+            else
+                av_log(s->avctx, AV_LOG_ERROR, "md5 ok %d\n", cIdx);
+        }
         sc->is_decoded = 1;
 #ifdef POC_DISPLAY_MD5
         printf_ref_pic_list(s);

@@ -39,7 +39,7 @@ static int hevc_find_frame_end(AVCodecParserContext *s, const uint8_t *buf, int 
         pc->state64 = (pc->state64 << 8) | buf[i];
         if (((pc->state64 >> 3*8) & 0xFFFFFF) == START_CODE) {
             int nut = (pc->state64 >> 2*8+1) & 0x3F;
-            if (nut >= NAL_VPS && nut <= NAL_AUD) { // Beginning of access unit
+            if (nut >= NAL_VPS && nut <= NAL_AUD || nut == NAL_SEI_PREFIX) { // Beginning of access unit
                 if (pc->frame_start_found) {
                     pc->frame_start_found = 0;
                     return i - 5;
