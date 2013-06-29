@@ -85,6 +85,11 @@ avconv(){
     run avconv ${avconv_args}
 }
 
+sei_hash(){
+    avconv -decode-checksum 1 -i "$@" -f null - 2>&1 | grep "Incorrect MD5"
+    test $? != 0
+}
+
 framecrc(){
     avconv "$@" -f framecrc -
 }
