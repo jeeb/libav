@@ -2446,9 +2446,9 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
         calc_md5(md5[2], frame->data[2], frame->linesize[2], frame->width/2, frame->height/2);
         for( cIdx = 0; cIdx < 3/*((s->sps->chroma_format_idc == 0) ? 1 : 3)*/; cIdx++ ) {
             if (!compare_md5(md5[cIdx], s->HEVCsc->md5[cIdx]) && s->HEVCsc->is_decoded)
-                av_log(s->avctx, AV_LOG_ERROR, "md5 not ok %d\n", cIdx);
+                av_log(s->avctx, AV_LOG_WARNING, "Incorrect MD5 (poc: %d, plane: %d)\n", sc->poc, cIdx);
             else
-                av_log(s->avctx, AV_LOG_ERROR, "md5 ok %d\n", cIdx);
+                av_log(s->avctx, AV_LOG_INFO, "Correct MD5 (poc: %d, plane: %d)\n", sc->poc, cIdx);
         }
         sc->is_decoded = 1;
 #ifdef POC_DISPLAY_MD5
