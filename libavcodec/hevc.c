@@ -1057,10 +1057,10 @@ static void hls_transform_tree(HEVCContext *s, int x0, int y0, int xBase, int yB
     }
 }
 
-static void hls_pcm_sample(HEVCContext *s, int x0, int y0, int log2_cb_size)
+static int hls_pcm_sample(HEVCContext *s, int x0, int y0, int log2_cb_size)
 {
     //TODO: non-4:2:0 support
-    int i, j;
+    int i, j, ret;
     HEVCSharedContext *sc = s->HEVCsc ;
     int log2_min_pu_size = sc->sps->log2_min_pu_size;
     int pic_width_in_min_pu = sc->sps->pic_width_in_min_cbs * 4;
@@ -1088,11 +1088,14 @@ static void hls_pcm_sample(HEVCContext *s, int x0, int y0, int log2_cb_size)
                 sc->vertical_bs[(x0 >> 3) + ((y0 + i) * sc->bs_width) >> 2] = 2;
     }
 
-    init_get_bits(&gb, pcm, length);
+    ret = init_get_bits(&gb, pcm, length);
+    if (ret < 0)
+        return ret;
 
     sc->hevcdsp.put_pcm(dst0, stride0, cb_size, &gb, sc->sps->pcm.bit_depth);
     sc->hevcdsp.put_pcm(dst1, stride1, cb_size/2, &gb, sc->sps->pcm.bit_depth);
     sc->hevcdsp.put_pcm(dst2, stride2, cb_size/2, &gb, sc->sps->pcm.bit_depth);
+    return 0;
 }
 
 static void hls_mvd_coding(HEVCContext *s, int x0, int y0, int log2_cb_size)
@@ -1633,8 +1636,9 @@ static void intra_prediction_unit_default_value(HEVCContext *s, int x0, int y0, 
 
 }
 
-static void hls_coding_unit(HEVCContext *s, int x0, int y0, int log2_cb_size)
+static int hls_coding_unit(HEVCContext *s, int x0, int y0, int log2_cb_size)
 {
+    int ret;
     int cb_size          = 1 << log2_cb_size;
     HEVCSharedContext *sc = s->HEVCsc;
     HEVCLocalContext *lc = s->HEVClc;
@@ -1698,7 +1702,9 @@ static void hls_coding_unit(HEVCContext *s, int x0, int y0, int log2_cb_size)
                 lc->cu.pcm_flag = ff_hevc_pcm_flag_decode(s);
             }
             if (lc->cu.pcm_flag) {
-                hls_pcm_sample(s, x0, y0, log2_cb_size);
+                ret = hls_pcm_sample(s, x0, y0, log2_cb_size);
+                if (ret < 0)
+                    return ret;
                 intra_prediction_unit_default_value(s, x0, y0, log2_cb_size);
             } else {
                 intra_prediction_unit(s, x0, y0, log2_cb_size);
@@ -1770,10 +1776,12 @@ static void hls_coding_unit(HEVCContext *s, int x0, int y0, int log2_cb_size)
         x += pic_width_in_ctb;
     }
     set_ct_depth(s, x0, y0, log2_cb_size, lc->ct.depth);
+    return 0;
 }
 
 static int hls_coding_quadtree(HEVCContext *s, int x0, int y0, int log2_cb_size, int cb_depth)
 {
+    int ret;
     HEVCSharedContext *sc = s->HEVCsc;
     HEVCLocalContext *lc = s->HEVClc;
     lc->ct.depth = cb_depth;
@@ -1798,6 +1806,8 @@ static int hls_coding_quadtree(HEVCContext *s, int x0, int y0, int log2_cb_size,
         int x1 = x0 + cb_size;
         int y1 = y0 + cb_size;
         more_data = hls_coding_quadtree(s, x0, y0, log2_cb_size - 1, cb_depth + 1);
+        if (more_data < 0)
+            return more_data;
 
         if (more_data && x1 < sc->sps->pic_width_in_luma_samples)
             more_data = hls_coding_quadtree(s, x1, y0, log2_cb_size - 1, cb_depth + 1);
@@ -1813,7 +1823,9 @@ static int hls_coding_quadtree(HEVCContext *s, int x0, int y0, int log2_cb_size,
         else
             return 0;
     } else {
-        hls_coding_unit(s, x0, y0, log2_cb_size);
+        ret = hls_coding_unit(s, x0, y0, log2_cb_size);
+        if (ret < 0)
+            return ret;
         if ((!((x0 + (1 << log2_cb_size)) %
                (1 << (sc->sps->log2_ctb_size))) ||
              (x0 + (1 << log2_cb_size) >= sc->sps->pic_width_in_luma_samples)) &&
@@ -1887,6 +1899,8 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
         sc->deblock[ctb_addr_rs].beta_offset = sc->sh.beta_offset;
         sc->deblock[ctb_addr_rs].tc_offset = sc->sh.tc_offset;
         more_data = hls_coding_quadtree(s, x_ctb, y_ctb, sc->sps->log2_ctb_size, 0);
+        if (more_data < 0)
+            return more_data;
         ctb_addr_ts++;
         save_states(s, ctb_addr_ts);
         hls_filters(s, x_ctb, y_ctb, ctb_size);
@@ -1919,6 +1933,7 @@ static int hls_slice_data(HEVCContext *s)
 
 static int hls_decode_entry_wpp(AVCodecContext *avctxt, void *input_ctb_row)
 {
+    int ret;
     HEVCContext *s  = avctxt->priv_data;
     HEVCSharedContext *sc = s->HEVCsc;
     HEVCLocalContext *lc;
@@ -1932,7 +1947,9 @@ static int hls_decode_entry_wpp(AVCodecContext *avctxt, void *input_ctb_row)
     s = s->sList[(*ctb_row)%s->threads_number];
     lc = s->HEVClc;
     if(*ctb_row) {
-        init_get_bits(lc->gb, sc->rbsp_buffer+sc->sh.offset[(*ctb_row)-1], sc->sh.size[(*ctb_row)-1]*8);
+        ret = init_get_bits8(lc->gb, sc->rbsp_buffer+sc->sh.offset[(*ctb_row)-1], sc->sh.size[(*ctb_row)-1]);
+        if (ret < 0)
+            return ret;
         ff_init_cabac_decoder(lc->cc, sc->rbsp_buffer+sc->sh.offset[(*ctb_row)-1], sc->sh.size[(*ctb_row)-1]);
     }
     while(more_data) {
@@ -1950,6 +1967,8 @@ static int hls_decode_entry_wpp(AVCodecContext *avctxt, void *input_ctb_row)
             hls_sao_param(s, x_ctb >> sc->sps->log2_ctb_size, y_ctb >> sc->sps->log2_ctb_size);
 
         more_data = hls_coding_quadtree(s, x_ctb, y_ctb, sc->sps->log2_ctb_size, 0);
+        if (more_data < 0)
+            return more_data;
         ctb_addr_ts++;
         ctb_addr_rs       = sc->pps->ctb_addr_ts_to_rs[ctb_addr_ts];
         save_states(s, ctb_addr_ts);
@@ -2056,8 +2075,11 @@ static int hls_slice_data_wpp(HEVCContext *s, int length)
 
 
     s->avctx->execute(s->avctx, hls_decode_entry_wpp, arg, ret ,sc->sh.num_entry_point_offsets+1, sizeof(int));
-    for(i=0; i<=sc->sh.num_entry_point_offsets; i++)
-        res += ret[i];
+    for(i=0; i<=sc->sh.num_entry_point_offsets; i++) {
+        if (ret[i] < 0)
+            return ret[i];
+    }
+    res += ret[i];
     av_free(ret);
     av_free(arg);
     return res;
@@ -2153,8 +2175,11 @@ static int decode_nal_unit(HEVCContext *s, const uint8_t *nal, int length)
     int ctb_addr_ts;
     int ret;
 
-    init_get_bits(gb, nal, length*8);
     av_log(s->avctx, AV_LOG_DEBUG, "=================\n");
+
+    ret = init_get_bits8(gb, nal, length);
+    if (ret < 0)
+        return ret;
 
     ret = hls_nal_unit(s);
     if (ret < 0) {
@@ -2261,6 +2286,8 @@ static int decode_nal_unit(HEVCContext *s, const uint8_t *nal, int length)
         } else {
             ctb_addr_ts = hls_slice_data(s);
         }
+        if (ctb_addr_ts < 0)
+            return ctb_addr_ts;
         sc->is_decoded = 1;
         break;
     case NAL_AUD:
