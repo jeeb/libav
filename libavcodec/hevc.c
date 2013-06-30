@@ -441,7 +441,11 @@ static int hls_slice_header(HEVCContext *s)
 
             sh->max_num_merge_cand = 5 - get_ue_golomb(gb);
         }
-        ff_hevc_set_ref_poc_list(s);
+
+        ret = ff_hevc_set_ref_poc_list(s);
+        if (ret < 0)
+            return ret;
+
         sh->slice_qp_delta = get_se_golomb(gb);
         if (sc->pps->pic_slice_level_chroma_qp_offsets_present_flag) {
             sh->slice_cb_qp_offset = get_se_golomb(gb);
@@ -2155,10 +2159,14 @@ static int decode_nal_unit(HEVCContext *s, const uint8_t *nal, int length)
     ret = hls_nal_unit(s);
     if (ret < 0) {
         av_log(s->avctx, AV_LOG_ERROR, "Invalid NAL unit %d, skipping.\n", sc->nal_unit_type);
+        if (s->avctx->err_recognition & AV_EF_EXPLODE) {
+            return ret;
+        }
         return 0;
     } else if (!ret)
         return 0;
 
+    sc->is_decoded = 0;
     switch (sc->nal_unit_type) {
     case NAL_VPS:
         ff_hevc_decode_nal_vps(s);
@@ -2193,7 +2201,7 @@ static int decode_nal_unit(HEVCContext *s, const uint8_t *nal, int length)
         lc->isFirstQPgroup = !sc->sh.dependent_slice_segment_flag;
         
         if (ret < 0)
-            if (ret == AVERROR_INVALIDDATA)
+            if (ret == AVERROR_INVALIDDATA && !(s->avctx->err_recognition & AV_EF_EXPLODE))
                 return 0;
             else
                 return ret;
@@ -2210,7 +2218,6 @@ static int decode_nal_unit(HEVCContext *s, const uint8_t *nal, int length)
         }
 
         if (sc->nal_unit_type == NAL_RASL_R && sc->poc <= sc->max_ra) {
-            sc->is_decoded = 0;
             break;
         } else {
             if (sc->nal_unit_type == NAL_RASL_R && sc->poc > sc->max_ra)
@@ -2254,6 +2261,7 @@ static int decode_nal_unit(HEVCContext *s, const uint8_t *nal, int length)
         } else {
             ctb_addr_ts = hls_slice_data(s);
         }
+        sc->is_decoded = 1;
         break;
     case NAL_AUD:
     case NAL_EOS_NUT:
@@ -2375,7 +2383,7 @@ nsc:
 
 static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
 {
-    int consumed, nal_length;
+    int consumed, nal_length, ret;
     const uint8_t *nal = NULL;
 
     while (length >= 4) {
@@ -2397,7 +2405,9 @@ static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
         buf += consumed;
         length -= consumed;
 
-        decode_nal_unit(s, nal, nal_length);
+        ret = decode_nal_unit(s, nal, nal_length);
+        if (ret < 0)
+            return ret;
     }
     return 0;
 }
@@ -2434,7 +2444,7 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
 
     *got_output = ret;
 
-    if (s->decode_checksum_sei) {
+    if (s->decode_checksum_sei && s->HEVCsc->is_decoded) {
         int cIdx;
         uint8_t md5[3][16];
         AVFrame *frame = sc->ref->frame;
@@ -2445,12 +2455,16 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
         calc_md5(md5[1], frame->data[1], frame->linesize[1], frame->width/2, frame->height/2);
         calc_md5(md5[2], frame->data[2], frame->linesize[2], frame->width/2, frame->height/2);
         for( cIdx = 0; cIdx < 3/*((s->sps->chroma_format_idc == 0) ? 1 : 3)*/; cIdx++ ) {
-            if (!compare_md5(md5[cIdx], s->HEVCsc->md5[cIdx]) && s->HEVCsc->is_decoded)
-                av_log(s->avctx, AV_LOG_WARNING, "Incorrect MD5 (poc: %d, plane: %d)\n", sc->poc, cIdx);
-            else
+            if (!compare_md5(md5[cIdx], s->HEVCsc->md5[cIdx])) {
+                av_log(s->avctx, AV_LOG_ERROR, "Incorrect MD5 (poc: %d, plane: %d)\n", sc->poc, cIdx);
+                if (s->avctx->err_recognition & AV_EF_EXPLODE) {
+                    *got_output = 0;
+                    return AVERROR_INVALIDDATA;
+                }
+            } else {
                 av_log(s->avctx, AV_LOG_INFO, "Correct MD5 (poc: %d, plane: %d)\n", sc->poc, cIdx);
+            }
         }
-        sc->is_decoded = 1;
 #ifdef POC_DISPLAY_MD5
         printf_ref_pic_list(s);
         print_md5(poc, sc->md5);

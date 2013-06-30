@@ -861,7 +861,7 @@ void ff_hevc_clear_refs(HEVCContext *s);
 void ff_hevc_clean_refs(HEVCContext *s);
 int ff_hevc_add_ref(HEVCContext *s, AVFrame *frame, int poc);
 void ff_hevc_compute_poc(HEVCContext *s, int poc_lsb);
-void ff_hevc_set_ref_poc_list(HEVCContext *s);
+int ff_hevc_set_ref_poc_list(HEVCContext *s);
 
 void save_states(HEVCContext *s, int ctb_addr_ts);
 void ff_hevc_cabac_init(HEVCContext *s, int ctb_addr_ts);
