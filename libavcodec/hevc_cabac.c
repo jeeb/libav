@@ -2,7 +2,7 @@
  * HEVC CABAC decoding
  *
  * Copyright (C) 2012 - 2013 Guillaume Martres
- * Copyright (C) 2012 - 2013 Gildas Cocherel (gildas.cocherel@insa-rennes.fr)
+ * Copyright (C) 2012 - 2013 Gildas Cocherel
  *
  * This file is part of Libav.
  *
