@@ -1,7 +1,9 @@
 /*
  * HEVC Parameter Set Decoding
  *
- * Copyright (C) 2012 Guillaume Martres
+ * Copyright (C) 2012 - 2103 Guillaume Martres
+ * Copyright (C) 2012 - 2103 Mickaël Raulet (mickael.raulet@insa-rennes.fr)
+ * Copyright (C) 2012 - 2013 Gildas Cocherel
  *
  * This file is part of Libav.
  *
