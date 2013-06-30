@@ -86,6 +86,8 @@ avconv(){
 }
 
 explode(){
+    cmp=null
+    ref=/dev/null
     avconv -xerror -err_detect explode "$@" -f null -
 }
 

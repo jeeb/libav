@@ -74,8 +74,6 @@ FATE_HEVC-$(call DEMDEC, HEVC, HEVC) += $(FATE_HEVC)
 FATE_SAMPLES_AVCONV += $(FATE_HEVC-yes)
 
 fate-hevc: $(FATE_HEVC-yes)
-fate-hevc: CMP = null
-fate-hevc: REF = /dev/null
 
 fate-hevc-conformance-cainit_a_sharp_3:      CMD = explode -decode-checksum 1 -i $(TARGET_SAMPLES)/hevc-conformance/CAINIT_A_SHARP_3.bit
 fate-hevc-conformance-cainit_b_sharp_3:      CMD = explode -decode-checksum 1 -i $(TARGET_SAMPLES)/hevc-conformance/CAINIT_B_SHARP_3.bit
