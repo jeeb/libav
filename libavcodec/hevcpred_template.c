@@ -26,7 +26,7 @@
 
 #define POS(x, y) src[(x) + stride * (y)]
 
-static void FUNCC(intra_pred)(HEVCContext *s, int x0, int y0, int log2_size, int c_idx)
+static void FUNC(intra_pred)(HEVCContext *s, int x0, int y0, int log2_size, int c_idx)
 {
 #define MIN_TB_ADDR_ZS(x, y)                                            \
     sc->pps->min_tb_addr_zs[(y) * sc->sps->pic_width_in_min_tbs + (x)]
@@ -235,7 +235,7 @@ static void FUNCC(intra_pred)(HEVCContext *s, int x0, int y0, int log2_size, int
 
 }
 
-static void FUNCC(pred_planar)(uint8_t *_src, const uint8_t *_top, const uint8_t *_left,
+static void FUNC(pred_planar)(uint8_t *_src, const uint8_t *_top, const uint8_t *_left,
                                ptrdiff_t stride, int log2_size)
 {
     int x, y;
@@ -250,7 +250,7 @@ static void FUNCC(pred_planar)(uint8_t *_src, const uint8_t *_top, const uint8_t
                         (log2_size + 1);
 }
 
-static void FUNCC(pred_dc)(uint8_t *_src, const uint8_t *_top, const uint8_t *_left,
+static void FUNC(pred_dc)(uint8_t *_src, const uint8_t *_top, const uint8_t *_left,
                            ptrdiff_t stride, int log2_size, int c_idx)
 {
     int i, j, x, y;
@@ -280,7 +280,7 @@ static void FUNCC(pred_dc)(uint8_t *_src, const uint8_t *_top, const uint8_t *_l
     }
 }
 
-static void FUNCC(pred_angular)(uint8_t *_src, const uint8_t *_top, const uint8_t *_left,
+static void FUNC(pred_angular)(uint8_t *_src, const uint8_t *_top, const uint8_t *_left,
                                 ptrdiff_t stride, int log2_size, int c_idx, int mode)
 {
     int x, y;
