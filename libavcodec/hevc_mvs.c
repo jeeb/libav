@@ -775,7 +775,7 @@ void ff_hevc_luma_mv_mvp_mode(HEVCContext *s, int x0, int y0, int nPbW, int nPbH
     yA0_pu = yA0 >> sc->sps->log2_min_pu_size;
     check_A0 = check_prediction_block_available(s, log2_cb_size, x0, y0, nPbW, nPbH, xA0, yA0, part_idx);
 
-    isAvailableA0 = (cand_bottom_left && !(TAB_MVF(xA0_pu, yA0_pu).is_intra) && check_A0);
+    isAvailableA0 = (cand_bottom_left && check_A0 && !(TAB_MVF(xA0_pu, yA0_pu).is_intra));
 
 
     //left spatial merge candidate
