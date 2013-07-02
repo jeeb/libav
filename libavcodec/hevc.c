@@ -2569,6 +2569,7 @@ static av_cold int hevc_decode_free(AVCodecContext *avctx)
     HEVCSharedContext *sc = s->HEVCsc;
     HEVCLocalContext *lc = s->HEVClc;
 
+    av_free(sc->rbsp_buffer);
     av_free(sc->skipped_bytes_pos);
     av_frame_free(&sc->tmp_frame);
     av_free(sc->cabac_state);
