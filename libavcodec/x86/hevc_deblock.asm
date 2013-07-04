@@ -22,6 +22,8 @@
 ;* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 ;******************************************************************************
 
+%if ARCH_X86_64
+
 %include "libavutil/x86/x86util.asm"
 
 SECTION_RODATA
@@ -755,3 +757,5 @@ cglobal hevc_h_loop_filter_luma_8, 4, 15, 16
     movq     [r0+2*r1], m6;  q2
 bypasshluma:
     RET
+
+%endif
