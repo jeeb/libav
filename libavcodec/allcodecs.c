@@ -129,6 +129,7 @@ void avcodec_register_all(void)
     REGISTER_DECODER(DXTORY,            dxtory);
     REGISTER_DECODER(EACMV,             eacmv);
     REGISTER_DECODER(EAMAD,             eamad);
+    REGISTER_DECODER(EARTHSOFTDV,       earthsoftdv);
     REGISTER_DECODER(EATGQ,             eatgq);
     REGISTER_DECODER(EATGV,             eatgv);
     REGISTER_DECODER(EATQI,             eatqi);

@@ -157,6 +157,7 @@ OBJS-$(CONFIG_EAC3_ENCODER)            += eac3enc.o eac3_data.o
 OBJS-$(CONFIG_EACMV_DECODER)           += eacmv.o
 OBJS-$(CONFIG_EAMAD_DECODER)           += eamad.o eaidct.o mpeg12.o \
                                           mpeg12data.o
+OBJS-$(CONFIG_EARTHSOFTDV_DECODER)     += earthsoftdv.o
 OBJS-$(CONFIG_EATGQ_DECODER)           += eatgq.o eaidct.o
 OBJS-$(CONFIG_EATGV_DECODER)           += eatgv.o
 OBJS-$(CONFIG_EATQI_DECODER)           += eatqi.o eaidct.o mpeg12dec.o  \
