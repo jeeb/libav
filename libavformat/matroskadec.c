@@ -1645,6 +1645,76 @@ static int matroska_read_header(AVFormatContext *s)
                 st->codec->block_align = track->audio.sub_packet_size;
                 extradata_offset = 78;
             }
+        } else if (codec_id == AV_CODEC_ID_HEVC &&
+                   track->codec_priv.size >= 23 &&
+                   track->codec_priv.data != NULL) {
+            int size_prefix_size; // number of bytes before a NAL unit that indicate its size
+            int num_of_arrays; // number of arrays of NAL units
+            int counter;
+            int counter2;
+            unsigned int num_of_nals; // the number of NALs in the current NAL unit array
+            int size_of_nal_unit; // size of the current NAL unit
+            uint64_t full_length = 0; // full length of all NAL units with the prefixes
+            uint8_t *extradata_cur_pos;
+
+            if (track->codec_priv.data[0] != 0) {
+                av_log(matroska->ctx, AV_LOG_ERROR,
+                       "Unsupported HEVC CodecPrivate configurationVersion: %"PRIu8".\n"
+                       "In case of version 1, check if 14496-15 3rd edition has been finished.\n",
+                       track->codec_priv.data[0]);
+            }
+
+            ffio_init_context(&b, track->codec_priv.data, track->codec_priv.size,
+                              0, NULL, NULL, NULL, NULL);
+            avio_skip(&b, 21); // skip until temporalIdNested
+            size_prefix_size = (avio_r8(&b) & 0x3) + 1; // Read the size from lengthSizeMinusOne
+            num_of_arrays = avio_r8(&b);
+
+            // Count collective size of NAL units in this CodecPrivate
+            for (counter = 0; counter < num_of_arrays; counter++) {
+                avio_skip(&b, 1); // skip array_completeness and NAL_unit_type *whistle*
+                num_of_nals = avio_rb16(&b);
+
+                for(counter2 = 0; counter2 < num_of_nals; counter2++) {
+                    size_of_nal_unit = avio_rb16(&b);
+                    full_length += 4 + size_of_nal_unit; // add the 0x00000001 + nal unit size
+                    avio_skip(&b, size_of_nal_unit); // skip the nal unit, we're counting
+                }
+            }
+
+            av_log(matroska->ctx, AV_LOG_DEBUG,
+                   "Size of NAL units in CodecPrivate: %"PRIu64".\n", full_length);
+            avio_seek(&b, 23, SEEK_SET); // we go back to the beginning of the CodecPrivate
+
+            extradata = av_mallocz(full_length);
+            if (!extradata) {
+                av_log(matroska->ctx, AV_LOG_ERROR,
+                       "Extradata malloc failed!\n");
+                return AVERROR(ENOMEM);
+            }
+            extradata_cur_pos = extradata;
+            extradata_size = full_length;
+
+            for (counter = 0; counter < num_of_arrays; counter++) {
+                avio_skip(&b, 1);
+                num_of_nals = avio_rb16(&b);
+
+                av_log(matroska->ctx, AV_LOG_DEBUG, "Num of NALs %d: %d\n", counter, num_of_nals);
+
+                for(counter2 = 0; counter2 < num_of_nals; counter2++) {
+                    size_of_nal_unit = avio_rb16(&b);
+
+                    av_log(matroska->ctx, AV_LOG_DEBUG, "Size of NAL Unit [%d , %d]: %d\n",
+                           counter, counter2, size_of_nal_unit);
+
+                    extradata_cur_pos[3] = 1;
+                    extradata_cur_pos += 4;
+
+                    avio_read(&b, extradata_cur_pos, size_of_nal_unit);
+
+                    extradata_cur_pos += size_of_nal_unit;
+                }
+            }
         }
         track->codec_priv.size -= extradata_offset;
 
@@ -1693,8 +1763,8 @@ static int matroska_read_header(AVFormatContext *s)
                       st->codec->height * track->video.display_width,
                       st->codec-> width * track->video.display_height,
                       255);
-            if (st->codec->codec_id != AV_CODEC_ID_H264)
-            st->need_parsing = AVSTREAM_PARSE_HEADERS;
+            if (st->codec->codec_id != AV_CODEC_ID_H264 || st->codec->codec_id != AV_CODEC_ID_HEVC)
+                st->need_parsing = AVSTREAM_PARSE_HEADERS;
             if (track->default_duration) {
                 av_reduce(&st->avg_frame_rate.num, &st->avg_frame_rate.den,
                           1000000000, track->default_duration, 30000);
