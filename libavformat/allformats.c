@@ -101,6 +101,7 @@ void av_register_all(void)
     REGISTER_DEMUXER (EA,               ea);
     REGISTER_DEMUXER (EA_CDATA,         ea_cdata);
     REGISTER_MUXDEMUX(EAC3,             eac3);
+    REGISTER_DEMUXER (EARTHSOFT_DV,     earthsoft_dv);
     REGISTER_MUXER   (F4V,              f4v);
     REGISTER_MUXDEMUX(FFMETADATA,       ffmetadata);
     REGISTER_MUXDEMUX(FILMSTRIP,        filmstrip);
