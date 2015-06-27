@@ -18,6 +18,7 @@
  */
 
 #include "avformat.h"
+#include "internal.h"
 
 typedef struct EarthsoftDVDemuxContext {
     int codec_version;
@@ -34,6 +35,37 @@ static int earthsoft_probe(AVProbeData *p) {
         return AVPROBE_SCORE_MAX * 3 / 4;
     else
         return 0;
+}
+
+static int create_video_stream(AVFormatContext *s) {
+    EarthsoftDVDemuxContext *c  = s->priv_data;
+    AVStream *st = NULL;
+
+    st = avformat_new_stream(s, NULL);
+    if (!st)
+        return AVERROR(ENOMEM);
+
+    st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
+    st->codec->codec_id   = AV_CODEC_ID_EARTHSOFT_DV;
+    st->codec->width      = c->width;
+    st->codec->height     = c->height;
+    avpriv_set_pts_info(st, 64, 1001, c->progressive_scan ? 30000 : 60000);
+
+    return 0;
+}
+
+static int create_audio_stream(AVFormatContext *s) {
+    AVStream *st = NULL;
+
+    st = avformat_new_stream(s, NULL);
+    if (!st)
+        return AVERROR(ENOMEM);
+
+    st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
+    st->codec->codec_id   = AV_CODEC_ID_PCM_S16BE;
+    st->codec->channels   = 2;
+
+    return 0;
 }
 
 /*
@@ -132,6 +164,10 @@ static int earthsoft_read_header(AVFormatContext *s) {
 
     /* use the current position as the position where the data begins */
     c->data_offset = avio_tell(pb);
+
+    /* create the hardcoded video and audio streams */
+    create_video_stream(s);
+    create_audio_stream(s);
 
     return 0;
 }
