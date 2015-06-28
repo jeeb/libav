@@ -51,6 +51,23 @@ static int create_video_stream(AVFormatContext *s) {
     st->codec->height     = c->height;
     avpriv_set_pts_info(st, 64, 1001, c->progressive_scan ? 30000 : 60000);
 
+    st->codec->extradata_size = sizeof(c->luma_quantizers) +
+                                sizeof(c->chroma_quantizers);
+
+    st->codec->extradata = av_malloc(st->codec->extradata_size +
+                                     FF_INPUT_BUFFER_PADDING_SIZE);
+    if (!st->codec->extradata) {
+        av_log(s, AV_LOG_ERROR, "Failed to allocate extradata\n");
+        return AVERROR(ENOMEM);
+    }
+
+    /* copy the quantizers to the codec extradata */
+    memcpy(c->luma_quantizers, st->codec->extradata,
+           sizeof(c->luma_quantizers));
+    memcpy(c->chroma_quantizers,
+           st->codec->extradata + sizeof(c->luma_quantizers),
+           sizeof(c->chroma_quantizers));
+
     return 0;
 }
 
