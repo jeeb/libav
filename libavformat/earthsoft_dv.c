@@ -217,8 +217,6 @@ static int earthsoft_read_header(AVFormatContext *s) {
 
 static int parse_av_frame_header(EarthsoftDVAVFrameHeader *header,
                                  AVIOContext *pb, int progressive_scan) {
-    int v_data_size_count = progressive_scan ? 2 : 4;
-
     header->a_frames_until_curr_av_frame = avio_rb24(pb) << 24 | avio_rb24(pb);
     header->a_frame_count                = avio_rb16(pb);
     header->a_sampling_rate              = avio_rb32(pb);
@@ -230,7 +228,7 @@ static int parse_av_frame_header(EarthsoftDVAVFrameHeader *header,
     header->v_aspect_height    = avio_rb16(pb);
     header->v_encoding_quality = avio_r8(pb);
 
-    for (int i = 0; i < v_data_size_count; i++)
+    for (int i = 0; i < 4; i++)
         header->v_data_size[i] = avio_rb32(pb);
 
     return 0;
