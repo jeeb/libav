@@ -231,6 +231,9 @@ static int parse_av_frame_header(EarthsoftDVAVFrameHeader *header,
     for (int i = 0; i < 4; i++)
         header->v_data_size[i] = avio_rb32(pb);
 
+    /* skip reserved bytes (aka padding) */
+    avio_skip(pb, 112);
+
     return 0;
 }
 
@@ -238,6 +241,7 @@ static int earthsoft_read_packet(AVFormatContext *s, AVPacket *pkt) {
     AVIOContext              *pb     = s->pb;
     EarthsoftDVDemuxContext  *c      = s->priv_data;
     EarthsoftDVAVFrameHeader header  = c->header;
+    int ret = -1;
 
     if (c->mode == PARSE_HEADER) {
         parse_av_frame_header(&header, pb, c->progressive_scan);
@@ -263,7 +267,21 @@ static int earthsoft_read_packet(AVFormatContext *s, AVPacket *pkt) {
         c->mode = PARSE_AUDIO;
     }
 
-    return 0;
+    if (c->mode == PARSE_AUDIO) {
+        // c->a_stream->codec->codec_id = AV_CODEC_ID_PROBE;
+        // c->a_stream->need_parsing    = AVSTREAM_PARSE_FULL;
+
+        /* read frame count amount of two 16 bit values */
+        ret = av_get_packet(pb, pkt, 4 * header.a_frame_count);
+
+        pkt->pts = header.a_frames_until_curr_av_frame;
+        pkt->dts = header.a_frames_until_curr_av_frame;
+        pkt->stream_index = c->a_stream->index;
+
+        c->mode = PARSE_VIDEO;
+    }
+
+    return (ret < 0) ? ret : 0;
 }
 
 AVInputFormat ff_earthsoft_dv_demuxer = {
