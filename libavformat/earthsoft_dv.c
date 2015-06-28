@@ -228,6 +228,9 @@ static int parse_av_frame_header(EarthsoftDVAVFrameHeader *header,
     header->v_aspect_height    = avio_rb16(pb);
     header->v_encoding_quality = avio_r8(pb);
 
+    /* skip reserved bytes (aka padding) */
+    avio_skip(pb, 123);
+
     for (int i = 0; i < 4; i++)
         header->v_data_size[i] = avio_rb32(pb);
 
