@@ -20,6 +20,18 @@
 #include "avformat.h"
 #include "internal.h"
 
+typedef enum {PARSE_HEADER, PARSE_AUDIO, PARSE_VIDEO} parsing_mode;
+
+typedef struct EarthsoftDVAVFrameHeader {
+    uint64_t a_frames_until_curr_av_frame;
+    uint16_t a_frame_count;
+    uint32_t a_sampling_rate;
+    uint16_t v_aspect_width;
+    uint16_t v_aspect_height;
+    int      v_encoding_quality;
+    uint32_t v_data_size[4];
+} EarthsoftDVAVFrameHeader;
+
 typedef struct EarthsoftDVDemuxContext {
     int codec_version;
     int64_t width;
@@ -28,6 +40,10 @@ typedef struct EarthsoftDVDemuxContext {
     uint16_t luma_quantizers[64];
     uint16_t chroma_quantizers[64];
     int64_t data_offset;
+    AVStream *v_stream;
+    AVStream *a_stream;
+    EarthsoftDVAVFrameHeader header;
+    parsing_mode mode;
 } EarthsoftDVDemuxContext;
 
 static int earthsoft_probe(AVProbeData *p) {
@@ -39,7 +55,7 @@ static int earthsoft_probe(AVProbeData *p) {
 
 static int create_video_stream(AVFormatContext *s) {
     EarthsoftDVDemuxContext *c  = s->priv_data;
-    AVStream *st = NULL;
+    AVStream                *st = NULL;
 
     st = avformat_new_stream(s, NULL);
     if (!st)
@@ -50,6 +66,8 @@ static int create_video_stream(AVFormatContext *s) {
     st->codec->width      = c->width;
     st->codec->height     = c->height;
     avpriv_set_pts_info(st, 64, 1001, c->progressive_scan ? 30000 : 60000);
+    st->avg_frame_rate = (AVRational){c->progressive_scan ? 30000 : 60000,
+                                      1001};
 
     st->codec->extradata_size = sizeof(c->luma_quantizers) +
                                 sizeof(c->chroma_quantizers);
@@ -68,11 +86,14 @@ static int create_video_stream(AVFormatContext *s) {
            st->codec->extradata + sizeof(c->luma_quantizers),
            sizeof(c->chroma_quantizers));
 
+    c->v_stream = st;
+
     return 0;
 }
 
 static int create_audio_stream(AVFormatContext *s) {
-    AVStream *st = NULL;
+    EarthsoftDVDemuxContext *c  = s->priv_data;
+    AVStream                *st = NULL;
 
     st = avformat_new_stream(s, NULL);
     if (!st)
@@ -81,6 +102,8 @@ static int create_audio_stream(AVFormatContext *s) {
     st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
     st->codec->codec_id   = AV_CODEC_ID_PCM_S16BE;
     st->codec->channels   = 2;
+
+    c->a_stream = st;
 
     return 0;
 }
@@ -186,10 +209,62 @@ static int earthsoft_read_header(AVFormatContext *s) {
     create_video_stream(s);
     create_audio_stream(s);
 
+    /* initialize parsing mode */
+    c->mode = PARSE_HEADER;
+
+    return 0;
+}
+
+static int parse_av_frame_header(EarthsoftDVAVFrameHeader *header,
+                                 AVIOContext *pb, int progressive_scan) {
+    int v_data_size_count = progressive_scan ? 2 : 4;
+
+    header->a_frames_until_curr_av_frame = avio_rb24(pb) << 24 | avio_rb24(pb);
+    header->a_frame_count                = avio_rb16(pb);
+    header->a_sampling_rate              = avio_rb32(pb);
+
+    /* skip reserved bytes (aka padding) */
+    avio_skip(pb, 244);
+
+    header->v_aspect_width     = avio_rb16(pb);
+    header->v_aspect_height    = avio_rb16(pb);
+    header->v_encoding_quality = avio_r8(pb);
+
+    for (int i = 0; i < v_data_size_count; i++)
+        header->v_data_size[i] = avio_rb32(pb);
+
     return 0;
 }
 
 static int earthsoft_read_packet(AVFormatContext *s, AVPacket *pkt) {
+    AVIOContext              *pb     = s->pb;
+    EarthsoftDVDemuxContext  *c      = s->priv_data;
+    EarthsoftDVAVFrameHeader header  = c->header;
+
+    if (c->mode == PARSE_HEADER) {
+        parse_av_frame_header(&header, pb, c->progressive_scan);
+        av_log(s, AV_LOG_DEBUG, "Parsed AV frame header data:\n"
+                                "  Audio frames until this AV Frame: %"PRIu64"\n"
+                                "  Audio frames: %"PRIu16"\n"
+                                "  Audio sampling rate: %"PRIu32"\n"
+                                "  Video AR: %"PRIu16":%"PRIu16"\n"
+                                "  Encoding quality: %d\n",
+               header.a_frames_until_curr_av_frame, header.a_frame_count,
+               header.a_sampling_rate, header.v_aspect_width,
+               header.v_aspect_height, header.v_encoding_quality);
+
+        c->a_stream->codec->sample_rate = header.a_sampling_rate;
+
+        /* set the SAR based on the DAR */
+        av_reduce(&c->v_stream->codec->sample_aspect_ratio.num,
+                  &c->v_stream->codec->sample_aspect_ratio.den,
+                  c->v_stream->codec->height * header.v_aspect_width,
+                  c->v_stream->codec->width * header.v_aspect_height,
+                  255);
+
+        c->mode = PARSE_AUDIO;
+    }
+
     return 0;
 }
 
