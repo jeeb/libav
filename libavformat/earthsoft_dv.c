@@ -243,28 +243,32 @@ static int parse_av_frame_header(EarthsoftDVAVFrameHeader *header,
 static int earthsoft_read_packet(AVFormatContext *s, AVPacket *pkt) {
     AVIOContext              *pb     = s->pb;
     EarthsoftDVDemuxContext  *c      = s->priv_data;
-    EarthsoftDVAVFrameHeader header  = c->header;
+    EarthsoftDVAVFrameHeader *header  = &c->header;
+    uint64_t video_data_size = 0;
+    int data_sizes_used = c->progressive_scan ? 2 : 4;
     int ret = -1;
+    int64_t misaligment;
 
     if (c->mode == PARSE_HEADER) {
-        parse_av_frame_header(&header, pb, c->progressive_scan);
+        parse_av_frame_header(header, pb, c->progressive_scan);
+
         av_log(s, AV_LOG_DEBUG, "Parsed AV frame header data:\n"
                                 "  Audio frames until this AV Frame: %"PRIu64"\n"
                                 "  Audio frames: %"PRIu16"\n"
                                 "  Audio sampling rate: %"PRIu32"\n"
                                 "  Video AR: %"PRIu16":%"PRIu16"\n"
                                 "  Encoding quality: %d\n",
-               header.a_frames_until_curr_av_frame, header.a_frame_count,
-               header.a_sampling_rate, header.v_aspect_width,
-               header.v_aspect_height, header.v_encoding_quality);
+               header->a_frames_until_curr_av_frame, header->a_frame_count,
+               header->a_sampling_rate, header->v_aspect_width,
+               header->v_aspect_height, header->v_encoding_quality);
 
-        c->a_stream->codec->sample_rate = header.a_sampling_rate;
+        c->a_stream->codec->sample_rate = header->a_sampling_rate;
 
         /* set the SAR based on the DAR */
         av_reduce(&c->v_stream->codec->sample_aspect_ratio.num,
                   &c->v_stream->codec->sample_aspect_ratio.den,
-                  c->v_stream->codec->height * header.v_aspect_width,
-                  c->v_stream->codec->width * header.v_aspect_height,
+                  c->v_stream->codec->height * header->v_aspect_width,
+                  c->v_stream->codec->width * header->v_aspect_height,
                   255);
 
         c->mode = PARSE_AUDIO;
@@ -275,13 +279,37 @@ static int earthsoft_read_packet(AVFormatContext *s, AVPacket *pkt) {
         // c->a_stream->need_parsing    = AVSTREAM_PARSE_FULL;
 
         /* read frame count amount of two 16 bit values */
-        ret = av_get_packet(pb, pkt, 4 * header.a_frame_count);
+        ret = av_get_packet(pb, pkt, 4 * header->a_frame_count);
 
-        pkt->pts = header.a_frames_until_curr_av_frame;
-        pkt->dts = header.a_frames_until_curr_av_frame;
+        pkt->pts = header->a_frames_until_curr_av_frame;
+        pkt->dts = header->a_frames_until_curr_av_frame;
         pkt->stream_index = c->a_stream->index;
 
+        /* align us to the next 4096 byte border */
+        if ((misaligment = avio_tell(pb) % 4096))
+            avio_skip(pb, 4096 - misaligment);
+
         c->mode = PARSE_VIDEO;
+    } else if (c->mode == PARSE_VIDEO) {
+        for (int i = 0; i < data_sizes_used; i++) {
+            video_data_size += header->v_data_size[i];
+
+            if (i != data_sizes_used - 1) {
+                /* if we're not on the last round, align to 32 bytes */
+                if ((misaligment = video_data_size % 32))
+                    video_data_size += 32 - misaligment;
+            }
+        }
+
+        ret = av_get_packet(pb, pkt, video_data_size);
+
+        pkt->stream_index = c->v_stream->index;
+
+        /* align us to the next 4096 byte border */
+        if ((misaligment = avio_tell(pb) % 4096))
+            avio_skip(pb, 4096 - misaligment);
+
+        c->mode = PARSE_HEADER;
     }
 
     return (ret < 0) ? ret : 0;
