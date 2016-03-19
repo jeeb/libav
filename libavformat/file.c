@@ -42,10 +42,12 @@ typedef struct FileContext {
     const AVClass *class;
     int fd;
     int trunc;
+    int64_t rw_timeout; /**< File I/O "no more data" timeout. */
 } FileContext;
 
 static const AVOption file_options[] = {
     { "truncate", "Truncate existing files on write", offsetof(FileContext, trunc), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM },
+    { "timeout", "set timeout of file I/O operations", offsetof(FileContext, rw_timeout), AV_OPT_TYPE_INT64, {.i64 = -1}, -1, INT64_MAX, AV_OPT_FLAG_DECODING_PARAM },
     { NULL }
 };
 
@@ -59,7 +61,15 @@ static const AVClass file_class = {
 static int file_read(URLContext *h, unsigned char *buf, int size)
 {
     FileContext *c = h->priv_data;
-    return read(c->fd, buf, size);
+    int ret;
+    ret = read(c->fd, buf, size);
+    if(ret == 0 && c->rw_timeout >= 0) {
+        /* Timeout based retries have been requested, return EAGAIN for retry */
+        av_log(c, AV_LOG_DEBUG, "Asking for retry with file read\n");
+        return AVERROR(EAGAIN);
+    }
+
+    return (ret == -1) ? AVERROR(errno) : ret;
 }
 
 static int file_write(URLContext *h, const unsigned char *buf, int size)
@@ -115,6 +125,13 @@ static int file_open(URLContext *h, const char *filename, int flags)
     if (fd == -1)
         return AVERROR(errno);
     c->fd = fd;
+
+    if (c->rw_timeout >= 0) {
+        av_log(c, AV_LOG_DEBUG, "Setting rw_timeout for file %s to %"PRId64"\n",
+               filename, c->rw_timeout);
+        h->rw_timeout = c->rw_timeout;
+    }
+
     return 0;
 }
 
