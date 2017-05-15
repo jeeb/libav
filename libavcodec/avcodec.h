@@ -2725,6 +2725,8 @@ typedef struct AVCodecContext {
      *             AVCodecContext.get_format callback)
      */
     int hwaccel_flags;
+
+    int trim_preroll;
 } AVCodecContext;
 
 /**
